@@ -18,31 +18,43 @@ Use `scripts/relay_imagegen.py` directly. The defaults are tuned for low-thinkin
 - Auto output path: `generated/<name>-YYYYMMDD-HHMMSS-2k.png`.
 - Optional input downscaling with `--prepare-image` or `--max-input-edge`.
 
+Agent rules:
+
+- Do not run setup checks unless config lookup fails.
+- Do not pass `--output-dir` unless the user asks for a custom directory.
+- Do not pass `--size`, `--quality`, or `--timeout` unless the user asks; defaults are already useful.
+- Use `prompts/<short-name>.txt` for saved prompts in the current workspace.
+- Use `generated/` as the default output location.
+- On Windows, avoid PowerShell ternary syntax; assign `$skill` with a plain path.
+- For a user-requested 4K run, add only `--size 3840x2160` and name it accordingly.
+
+Windows path setup:
+
+```powershell
+$skill = "$HOME/.codex/skills/relay-imagegen/scripts/relay_imagegen.py"
+```
+
 Minimal generation:
 
 ```powershell
-$skill = Join-Path ($env:CODEX_HOME ? $env:CODEX_HOME : "$HOME/.codex") "skills/relay-imagegen/scripts/relay_imagegen.py"
 python $skill generate --prompt-file prompts/prompt.txt --name output --force
 ```
 
 Require current Codex config/auth instead of falling back:
 
 ```powershell
-$skill = Join-Path ($env:CODEX_HOME ? $env:CODEX_HOME : "$HOME/.codex") "skills/relay-imagegen/scripts/relay_imagegen.py"
 python $skill generate --from-codex --prompt-file prompts/prompt.txt --name output --force
 ```
 
 Require the current ccswitch Codex provider instead of falling back:
 
 ```powershell
-$skill = Join-Path ($env:CODEX_HOME ? $env:CODEX_HOME : "$HOME/.codex") "skills/relay-imagegen/scripts/relay_imagegen.py"
 python $skill generate --from-ccswitch --prompt-file prompts/prompt.txt --name output --force
 ```
 
 Minimal edit with references:
 
 ```powershell
-$skill = Join-Path ($env:CODEX_HOME ? $env:CODEX_HOME : "$HOME/.codex") "skills/relay-imagegen/scripts/relay_imagegen.py"
 python $skill edit --image C:/path/to/reference.jpg --prompt-file prompts/prompt.txt --name edit --prepare-image --force
 ```
 
@@ -92,7 +104,7 @@ For the lowest-friction cross-project setup, create the skill-local private conf
 Use the setup helper when available:
 
 ```powershell
-$skillDir = Join-Path ($env:CODEX_HOME ? $env:CODEX_HOME : "$HOME/.codex") "skills/relay-imagegen"
+$skillDir = "$HOME/.codex/skills/relay-imagegen"
 python (Join-Path $skillDir "scripts/setup.py") config --scope skill
 python (Join-Path $skillDir "scripts/setup.py") --check
 python (Join-Path $skillDir "scripts/setup.py") --check-codex
@@ -114,11 +126,8 @@ Add `.secrets/` to `.gitignore` when using project-local or skill-local config. 
 Generation with default relay settings:
 
 ```powershell
-$skill = Join-Path ($env:CODEX_HOME ? $env:CODEX_HOME : "$HOME/.codex") "skills/relay-imagegen/scripts/relay_imagegen.py"
 python $skill generate `
   --prompt-file prompts/prompt.txt `
-  --size 2560x1440 `
-  --quality high `
   --name output-2k `
   --force
 ```
@@ -130,13 +139,10 @@ Use `prompts/` for reusable prompt files in a project. Do not create `photo/prom
 Edit with reference images:
 
 ```powershell
-$skill = Join-Path ($env:CODEX_HOME ? $env:CODEX_HOME : "$HOME/.codex") "skills/relay-imagegen/scripts/relay_imagegen.py"
 python $skill edit `
   --image C:/path/to/composition.png `
   --image C:/path/to/character.jpg `
   --prompt-file prompts/prompt.txt `
-  --size 2560x1440 `
-  --quality high `
   --name final-2k `
   --force
 ```
@@ -144,7 +150,6 @@ python $skill edit `
 For heavy reference images, prefer:
 
 ```powershell
-$skill = Join-Path ($env:CODEX_HOME ? $env:CODEX_HOME : "$HOME/.codex") "skills/relay-imagegen/scripts/relay_imagegen.py"
 python $skill edit `
   --image C:/path/to/reference.jpg `
   --prompt-file prompts/prompt.txt `
