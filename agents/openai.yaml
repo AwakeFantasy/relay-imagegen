@@ -1,0 +1,4 @@
+interface:
+  display_name: "Relay Imagegen"
+  short_description: "Relay-based 4K image generation"
+  default_prompt: "Use the relay image generation workflow to create or edit an image through the local JSON config, without persistent environment variables, and verify the output dimensions."

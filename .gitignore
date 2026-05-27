@@ -1,0 +1,9 @@
+.secrets/
+*.meta.json
+relay_prepared/
+generated/
+__pycache__/
+*.pyc
+.DS_Store
+.env
+.env.*
