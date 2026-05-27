@@ -10,6 +10,7 @@ import io
 import json
 import os
 from pathlib import Path
+import re
 import sqlite3
 import subprocess
 import sys
@@ -80,6 +81,19 @@ def normalize_openai_base_url(url: str) -> str:
     return url
 
 
+def extract_base_url_from_ccswitch_config(config: Any) -> str | None:
+    if isinstance(config, dict):
+        value = first_present(config, BASE_URL_FIELDS)
+        return str(value) if value else None
+    if not isinstance(config, str):
+        return None
+    for field in BASE_URL_FIELDS:
+        match = re.search(rf"(?m)^\s*{re.escape(field)}\s*=\s*[\"']([^\"']+)[\"']", config)
+        if match:
+            return match.group(1)
+    return None
+
+
 def load_ccswitch_config(db_path_arg: str | None = None, app_type: str = "codex") -> tuple[dict[str, Any], str]:
     db_path = Path(db_path_arg) if db_path_arg else CCSWITCH_DB
     if not db_path.exists():
@@ -97,7 +111,7 @@ def load_ccswitch_config(db_path_arg: str | None = None, app_type: str = "codex"
         auth = settings.get("auth") if isinstance(settings.get("auth"), dict) else {}
         api_key = first_present(auth, API_KEY_FIELDS)
         endpoint = con.execute(
-            "select url from provider_endpoints where app_type=? and provider_id=? order by id desc limit 1",
+            "select url from provider_endpoints where app_type=? and provider_id=? order by id asc limit 1",
             (app_type, provider["id"]),
         ).fetchone()
     except sqlite3.Error as exc:
@@ -110,10 +124,10 @@ def load_ccswitch_config(db_path_arg: str | None = None, app_type: str = "codex"
         except Exception:
             pass
 
-    base_url = endpoint["url"] if endpoint else None
     config = settings.get("config")
-    if not base_url and isinstance(config, dict):
-        base_url = first_present(config, BASE_URL_FIELDS)
+    base_url = extract_base_url_from_ccswitch_config(config)
+    if not base_url and endpoint:
+        base_url = endpoint["url"]
     if not api_key:
         die("Current ccswitch provider is missing an API key in settings_config.auth.")
     if not base_url:

@@ -8,6 +8,7 @@ import getpass
 import json
 import os
 from pathlib import Path
+import re
 import sqlite3
 import sys
 from typing import Any
@@ -71,6 +72,21 @@ def normalize_openai_base_url(url: str) -> str:
     if parsed.scheme and parsed.netloc and parsed.path in {"", "/"}:
         return urlunsplit((parsed.scheme, parsed.netloc, "/v1", parsed.query, parsed.fragment))
     return url
+
+
+def extract_base_url_from_ccswitch_config(config: Any) -> str | None:
+    if isinstance(config, dict):
+        for key in ("base_url", "baseUrl", "baseURL", "api_base", "endpoint", "openai_base_url", "OPENAI_BASE_URL"):
+            if config.get(key):
+                return str(config[key])
+        return None
+    if not isinstance(config, str):
+        return None
+    for key in ("base_url", "baseUrl", "baseURL", "api_base", "endpoint", "openai_base_url", "OPENAI_BASE_URL"):
+        match = re.search(rf"(?m)^\s*{re.escape(key)}\s*=\s*[\"']([^\"']+)[\"']", config)
+        if match:
+            return match.group(1)
+    return None
 
 
 def check() -> int:
@@ -143,7 +159,7 @@ def check_ccswitch(db_path: Path = CCSWITCH_DB, app_type: str = "codex", quiet_m
             or auth.get("OPENAI_API_KEY")
         )
         endpoint = con.execute(
-            "select url from provider_endpoints where app_type=? and provider_id=? order by id desc limit 1",
+            "select url from provider_endpoints where app_type=? and provider_id=? order by id asc limit 1",
             (app_type, provider["id"]),
         ).fetchone()
     except sqlite3.Error as exc:
@@ -162,9 +178,12 @@ def check_ccswitch(db_path: Path = CCSWITCH_DB, app_type: str = "codex", quiet_m
     print(f"CCSWITCH_DB={db_path}")
     print(f"CCSWITCH_PROVIDER={provider['name']} ({provider['id']})")
     print(f"API_KEY={redact(str(api_key)) if api_key else 'missing'}")
-    print(f"BASE_URL={normalize_openai_base_url(endpoint['url']) if endpoint else 'missing'}")
+    base_url = extract_base_url_from_ccswitch_config(settings.get("config"))
+    if not base_url and endpoint:
+        base_url = endpoint["url"]
+    print(f"BASE_URL={normalize_openai_base_url(base_url) if base_url else 'missing'}")
     print("MODEL=gpt-image-2")
-    return 0 if api_key and endpoint else 2
+    return 0 if api_key and base_url else 2
 
 
 def write_config(path: Path, overwrite: bool) -> int:

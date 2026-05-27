@@ -159,9 +159,12 @@ Then it reads:
 
 ```text
 key       -> providers.settings_config.auth.OPENAI_API_KEY
-base_url  -> provider_endpoints.url
+base_url  -> providers.settings_config.config base_url first
+fallback  -> first provider_endpoints url if config has no base_url
 model     -> gpt-image-2 by default
 ```
+
+Note: ccswitch may store multiple endpoint URLs. The last endpoint is not necessarily the active or healthy one. Relay Imagegen no longer picks the last endpoint blindly, which avoids accidentally selecting a failed node.
 
 If the endpoint is a root URL such as:
 

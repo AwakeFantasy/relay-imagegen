@@ -187,9 +187,12 @@ providers where app_type = "codex" and is_current = 1
 
 ```text
 key       -> providers.settings_config.auth.OPENAI_API_KEY
-base_url  -> provider_endpoints.url
+base_url  -> 优先读取 providers.settings_config.config 里的 base_url
+fallback  -> 如果 config 里没有 base_url，再读取 provider_endpoints 的第一个 url
 model     -> 默认使用 gpt-image-2
 ```
+
+注意：ccswitch 的 endpoint 列表可能包含多个节点，最后一个节点不一定是当前可用节点。Relay Imagegen 不会再简单读取最后一个 endpoint，以免误选到失败节点。
 
 如果 ccswitch 中保存的 endpoint 是：
 
