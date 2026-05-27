@@ -22,11 +22,13 @@ Agent rules:
 
 - Do not run setup checks unless config lookup fails.
 - Do not pass `--output-dir` unless the user asks for a custom directory.
-- Do not pass `--size`, `--quality`, or `--timeout` unless the user asks; defaults are already useful.
+- Default size is `2560x1440` landscape. Omit `--size` only when the user does not request a different resolution or aspect ratio.
+- If the user asks for 4K, 2K, horizontal/landscape, vertical/portrait, square, 16:9, 9:16, 1:1, wallpaper, avatar, or any explicit framing/aspect ratio, pass `--size` explicitly.
+- Do not pass `--quality` or `--timeout` unless the user asks; defaults are already useful.
 - Use `prompts/<short-name>.txt` for saved prompts in the current workspace.
 - Use `generated/` as the default output location.
 - On Windows, avoid PowerShell ternary syntax; assign `$skill` with a plain path.
-- For a user-requested 4K run, add only `--size 3840x2160` and name it accordingly.
+- Common sizes: 2K landscape `2560x1440`; 4K landscape `3840x2160`; 2K portrait `1440x2560`; 4K portrait `2160x3840`; square `2048x2048`.
 
 Windows path setup:
 
