@@ -37,6 +37,9 @@ BASE_URL_FIELDS = (
     "OPENAI_BASE_URL",
 )
 CCSWITCH_DB = Path.home() / ".cc-switch" / "cc-switch.db"
+CODEX_HOME = Path(os.environ.get("CODEX_HOME", Path.home() / ".codex"))
+CODEX_CONFIG = CODEX_HOME / "config.toml"
+CODEX_AUTH = CODEX_HOME / "auth.json"
 
 
 def die(message: str, code: int = 1) -> None:
@@ -92,6 +95,83 @@ def extract_base_url_from_ccswitch_config(config: Any) -> str | None:
         if match:
             return match.group(1)
     return None
+
+
+def parse_toml(path: Path) -> dict[str, Any]:
+    try:
+        import tomllib
+    except ModuleNotFoundError:
+        tomllib = None
+    if tomllib is not None:
+        with path.open("rb") as f:
+            return tomllib.load(f)
+    return parse_codex_toml_fallback(path.read_text(encoding="utf-8"))
+
+
+def parse_codex_toml_fallback(text: str) -> dict[str, Any]:
+    data: dict[str, Any] = {}
+    section: list[str] = []
+    for raw_line in text.splitlines():
+        line = raw_line.strip()
+        if not line or line.startswith("#"):
+            continue
+        if line.startswith("[") and line.endswith("]"):
+            section = [part.strip().strip('"').strip("'") for part in line.strip("[]").split(".")]
+            current = data
+            for part in section:
+                current = current.setdefault(part, {})
+            continue
+        if "=" not in line:
+            continue
+        key, raw_value = [part.strip() for part in line.split("=", 1)]
+        value = raw_value.strip().strip('"').strip("'")
+        current = data
+        for part in section:
+            current = current.setdefault(part, {})
+        current[key] = value
+    return data
+
+
+def load_codex_config(
+    config_path_arg: str | None = None,
+    auth_path_arg: str | None = None,
+) -> tuple[dict[str, Any], str]:
+    config_path = Path(config_path_arg) if config_path_arg else CODEX_CONFIG
+    auth_path = Path(auth_path_arg) if auth_path_arg else CODEX_AUTH
+    if not config_path.exists():
+        die(f"Codex config not found: {config_path}")
+    if not auth_path.exists():
+        die(f"Codex auth not found: {auth_path}")
+    try:
+        config = parse_toml(config_path)
+    except Exception as exc:
+        die(f"Could not parse Codex config TOML: {exc}")
+    try:
+        auth = json.loads(auth_path.read_text(encoding="utf-8"))
+    except Exception as exc:
+        die(f"Could not parse Codex auth JSON: {exc}")
+
+    provider_name = config.get("model_provider")
+    providers = config.get("model_providers") if isinstance(config.get("model_providers"), dict) else {}
+    provider = providers.get(provider_name) if provider_name else None
+    if not isinstance(provider, dict):
+        die("Codex config is missing the current model provider settings.")
+    api_key = first_present(auth, API_KEY_FIELDS)
+    base_url = first_present(provider, BASE_URL_FIELDS)
+    image_model = first_present(provider, ("image_model", "imageModel", "image-model"))
+    if not api_key:
+        die("Codex auth is missing an API key.")
+    if not base_url:
+        die("Codex current model provider is missing a base_url.")
+    return (
+        {
+            "api_key": api_key,
+            "base_url": normalize_openai_base_url(str(base_url)),
+            "model": image_model or "gpt-image-2",
+            "codex_provider_name": provider_name,
+        },
+        f"codex:{config_path}:{auth_path}:{provider_name}",
+    )
 
 
 def load_ccswitch_config(db_path_arg: str | None = None, app_type: str = "codex") -> tuple[dict[str, Any], str]:
@@ -171,14 +251,27 @@ def load_file_config(path_arg: str | None) -> tuple[dict[str, Any], str]:
 def load_config(
     path_arg: str | None,
     from_ccswitch: bool = False,
+    from_codex: bool = False,
+    no_codex: bool = False,
     no_ccswitch: bool = False,
     ccswitch_db: str | None = None,
+    codex_config: str | None = None,
+    codex_auth: str | None = None,
 ) -> tuple[dict[str, Any], str]:
     if path_arg:
         return load_file_config(path_arg)
+    if from_codex or os.environ.get("RELAY_IMAGEGEN_FROM_CODEX") == "1":
+        return load_codex_config(codex_config, codex_auth)
+    use_codex = not no_codex and os.environ.get("RELAY_IMAGEGEN_NO_CODEX") != "1"
     use_ccswitch = not no_ccswitch and os.environ.get("RELAY_IMAGEGEN_NO_CCSWITCH") != "1"
     if from_ccswitch or os.environ.get("RELAY_IMAGEGEN_FROM_CCSWITCH") == "1":
         return load_ccswitch_config(ccswitch_db)
+    try:
+        if use_codex:
+            with contextlib.redirect_stderr(io.StringIO()):
+                return load_codex_config(codex_config, codex_auth)
+    except SystemExit:
+        pass
     try:
         if use_ccswitch:
             with contextlib.redirect_stderr(io.StringIO()):
@@ -351,7 +444,8 @@ def write_sidecar(
         "prompt_snapshot": prompt_snapshot(args),
         "images": images,
         "config_path": config_path,
-        "config_source": "ccswitch" if str(config_path).startswith("ccswitch:") else "file",
+        "config_source": "codex" if str(config_path).startswith("codex:") else "ccswitch" if str(config_path).startswith("ccswitch:") else "file",
+        "codex_provider": cfg.get("codex_provider_name"),
         "ccswitch_provider": cfg.get("ccswitch_provider_name"),
         "base_url": str(cfg.get("base_url", "")).split("?")[0],
         "elapsed_seconds": round(elapsed, 2),
@@ -399,6 +493,10 @@ def main() -> int:
     parser = argparse.ArgumentParser(description="Relay wrapper for bundled image generation.")
     parser.add_argument("mode", choices=["generate", "edit"])
     parser.add_argument("--config")
+    parser.add_argument("--from-codex", action="store_true", help="Require the current Codex config/auth provider.")
+    parser.add_argument("--no-codex", action="store_true", help="Skip default Codex config/auth lookup.")
+    parser.add_argument("--codex-config", help="Override the Codex config.toml path.")
+    parser.add_argument("--codex-auth", help="Override the Codex auth.json path.")
     parser.add_argument("--from-ccswitch", action="store_true", help="Require the current Codex provider from ccswitch.")
     parser.add_argument("--no-ccswitch", action="store_true", help="Skip default ccswitch lookup and use file config.")
     parser.add_argument("--ccswitch-db", help="Override the ccswitch SQLite database path.")
@@ -419,7 +517,16 @@ def main() -> int:
     parser.add_argument("--dry-run", action="store_true")
     args = parser.parse_args()
 
-    cfg, config_path = load_config(args.config, args.from_ccswitch, args.no_ccswitch, args.ccswitch_db)
+    cfg, config_path = load_config(
+        args.config,
+        args.from_ccswitch,
+        args.from_codex,
+        args.no_codex,
+        args.no_ccswitch,
+        args.ccswitch_db,
+        args.codex_config,
+        args.codex_auth,
+    )
     out = Path(args.out) if args.out else default_output_path(args)
     args.out = str(out)
     out.parent.mkdir(parents=True, exist_ok=True)
@@ -434,6 +541,8 @@ def main() -> int:
     print(f"SIZE={args.size}")
     print(f"OUT={out}")
     print(f"TIMEOUT={args.timeout}")
+    if cfg.get("codex_provider_name"):
+        print(f"CODEX_PROVIDER={cfg['codex_provider_name']}")
     if cfg.get("ccswitch_provider_name"):
         print(f"CCSWITCH_PROVIDER={cfg['ccswitch_provider_name']}")
 

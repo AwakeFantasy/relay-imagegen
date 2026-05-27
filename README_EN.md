@@ -6,6 +6,7 @@ Relay Imagegen is a Codex Skill for generating and editing images through an Ope
 
 It is designed for relay-first image workflows that are easy to reuse and trace:
 
+- Current Codex config/auth discovery by default
 - Automatic ccswitch current Codex provider discovery
 - Private JSON config fallback for users without ccswitch
 - Saved and reusable prompts via `prompts/*.txt`
@@ -25,7 +26,8 @@ Use this Skill when:
 - You want to save prompts as reusable files.
 - You want each run to preserve the prompt snapshot, model, size, inputs, output path, and elapsed time.
 - You do not want a persistent system-level `OPENAI_API_KEY`.
-- You already use ccswitch for Codex and want to reuse its current provider.
+- Codex already works through a relay and you want to reuse that config.
+- You already use ccswitch for Codex and want to reuse its current provider when needed.
 - You edit images with local reference images.
 - You want high-resolution defaults such as `2560x1440`.
 
@@ -39,7 +41,7 @@ Relay Imagegen wraps Codex's bundled image generation CLI:
 
 The wrapper:
 
-1. Reads relay settings from ccswitch or a private JSON config file.
+1. Reads relay settings from current Codex config, ccswitch, or a private JSON config file.
 2. Injects `OPENAI_API_KEY` and `OPENAI_BASE_URL` only into the child process.
 3. Calls the bundled imagegen CLI.
 4. Verifies output dimensions when Pillow is available.
@@ -52,7 +54,7 @@ API keys are not printed, not passed as command-line arguments, and not written 
 - Codex with the bundled `imagegen` system Skill.
 - Python 3.10+.
 - An OpenAI-compatible image relay/proxy that supports your chosen image model.
-- Optional: ccswitch, for automatic current Codex provider discovery.
+- Optional: ccswitch, as a fallback for current Codex provider discovery.
 - Optional: Pillow, for reference image preparation and output dimension checks.
 
 ## Installation
@@ -73,7 +75,7 @@ After installation, Codex can use the Skill when you mention relay image generat
 
 ## Quick Start
 
-If you already use ccswitch for Codex, no extra key file is usually needed.
+If Codex already works through your relay, no extra key file is usually needed.
 
 Check configuration:
 
@@ -85,8 +87,9 @@ python $setup --check
 Expected output:
 
 ```text
-CCSWITCH_DB=C:\Users\you\.cc-switch\cc-switch.db
-CCSWITCH_PROVIDER=Your Provider
+CODEX_CONFIG=C:\Users\you\.codex\config.toml
+CODEX_AUTH=C:\Users\you\.codex\auth.json
+CODEX_PROVIDER=your-provider
 API_KEY=sk-...xxxx
 BASE_URL=https://relay.example/v1
 MODEL=gpt-image-2
@@ -122,24 +125,69 @@ generated/test-YYYYMMDD-HHMMSS-2k.meta.json
 
 Relay Imagegen supports two configuration sources:
 
-1. The current ccswitch Codex provider.
-2. Private JSON config files.
+1. Current Codex config/auth.
+2. The current ccswitch Codex provider.
+3. Private JSON config files.
 
 ### Default Lookup Order
 
 If `--config` is not provided, the script checks:
 
-1. Current ccswitch `codex` provider: `~/.cc-switch/cc-switch.db`
-2. `RELAY_IMAGEGEN_CONFIG`
-3. `photo/api_key.json` under the current project
-4. `.secrets/image_api.json` under the current project
-5. `.secrets/relay_imagegen.json` under the current project
-6. `.secrets/config.json` under this Skill
-7. `%APPDATA%/relay-imagegen/config.json` on Windows
-8. `~/.config/relay-imagegen/config.json`
-9. `~/.relay-imagegen.json`
+1. Current Codex config/auth: `~/.codex/config.toml` and `~/.codex/auth.json`
+2. Current ccswitch `codex` provider: `~/.cc-switch/cc-switch.db`
+3. `RELAY_IMAGEGEN_CONFIG`
+4. `photo/api_key.json` under the current project
+5. `.secrets/image_api.json` under the current project
+6. `.secrets/relay_imagegen.json` under the current project
+7. `.secrets/config.json` under this Skill
+8. `%APPDATA%/relay-imagegen/config.json` on Windows
+9. `~/.config/relay-imagegen/config.json`
+10. `~/.relay-imagegen.json`
 
-`--config <path>` overrides all automatic lookup and does not try ccswitch.
+`--config <path>` overrides all automatic lookup and does not try Codex or ccswitch.
+
+## Codex Config
+
+This is the first automatic config source.
+
+The script reads:
+
+```text
+~/.codex/config.toml
+~/.codex/auth.json
+```
+
+Sources:
+
+```text
+base_url -> current model_provider in config.toml
+api_key  -> OPENAI_API_KEY in auth.json
+model    -> image_model if present, otherwise gpt-image-2
+```
+
+Check Codex config explicitly:
+
+```powershell
+python ~/.codex/skills/relay-imagegen/scripts/setup.py --check-codex
+```
+
+Require Codex config and fail instead of falling back:
+
+```powershell
+python $skill generate --from-codex --prompt-file prompts/test.txt --name test --force
+```
+
+Skip Codex config:
+
+```powershell
+python $skill generate --no-codex --prompt-file prompts/test.txt --name test --force
+```
+
+Override Codex config paths:
+
+```powershell
+python $skill generate --codex-config C:/path/to/config.toml --codex-auth C:/path/to/auth.json --prompt-file prompts/test.txt --name test --force
+```
 
 ## ccswitch
 
@@ -397,6 +445,10 @@ It does not include API keys.
 | `--dry-run` | Print non-secret command shape only | Off |
 | `--force` | Allow overwrite behavior in bundled CLI | Off |
 | `--config` | Explicit JSON config path | Auto lookup |
+| `--from-codex` | Require current Codex config, no fallback | Off |
+| `--no-codex` | Skip Codex config lookup | Off |
+| `--codex-config` | Codex `config.toml` path | `~/.codex/config.toml` |
+| `--codex-auth` | Codex `auth.json` path | `~/.codex/auth.json` |
 | `--from-ccswitch` | Require ccswitch, no fallback | Off |
 | `--no-ccswitch` | Skip ccswitch lookup | Off |
 | `--ccswitch-db` | ccswitch database path | `~/.cc-switch/cc-switch.db` |
@@ -406,6 +458,7 @@ It does not include API keys.
 - Do not pass API keys as command-line arguments.
 - Do not commit real config files.
 - You do not need to persist `OPENAI_API_KEY` in user or system environment variables.
+- Codex mode reads current `config.toml` and `auth.json` and does not copy the key into this Skill.
 - ccswitch mode reads the current provider and does not copy the key into this Skill.
 - JSON config mode reads keys only at runtime.
 - Keys are injected only into the child process.
@@ -422,7 +475,7 @@ Run:
 python ~/.codex/skills/relay-imagegen/scripts/setup.py --check
 ```
 
-If ccswitch is unavailable, create a user-level config:
+If both Codex and ccswitch lookup are unavailable, create a user-level config:
 
 ```powershell
 python ~/.codex/skills/relay-imagegen/scripts/setup.py config --scope user

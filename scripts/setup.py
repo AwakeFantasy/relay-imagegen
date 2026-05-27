@@ -18,6 +18,9 @@ from urllib.parse import urlsplit, urlunsplit
 SKILL_DIR = Path(__file__).resolve().parents[1]
 SKILL_CONFIG = SKILL_DIR / ".secrets" / "config.json"
 CCSWITCH_DB = Path.home() / ".cc-switch" / "cc-switch.db"
+CODEX_HOME = Path(os.environ.get("CODEX_HOME", Path.home() / ".codex"))
+CODEX_CONFIG = CODEX_HOME / "config.toml"
+CODEX_AUTH = CODEX_HOME / "auth.json"
 
 
 def user_config_path() -> Path:
@@ -90,6 +93,9 @@ def extract_base_url_from_ccswitch_config(config: Any) -> str | None:
 
 
 def check() -> int:
+    codex_status = check_codex(quiet_missing=True)
+    if codex_status == 0:
+        return 0
     ccswitch_status = check_ccswitch(quiet_missing=True)
     if ccswitch_status == 0:
         return 0
@@ -126,10 +132,97 @@ def check() -> int:
         return 0 if api_key and base_url else 2
     if not found:
         print("CONFIG=missing")
+        print("If Codex already uses a relay, run: python scripts/setup.py --check-codex")
         print(f"Suggested skill-local path: {SKILL_CONFIG}")
         print(f"Suggested user path: {user_config_path()}")
         print("If you use ccswitch, run: python scripts/setup.py --check-ccswitch")
     return 1
+
+
+def parse_toml(path: Path) -> dict[str, Any]:
+    try:
+        import tomllib
+    except ModuleNotFoundError:
+        tomllib = None
+    if tomllib is not None:
+        with path.open("rb") as f:
+            return tomllib.load(f)
+    return parse_codex_toml_fallback(path.read_text(encoding="utf-8"))
+
+
+def parse_codex_toml_fallback(text: str) -> dict[str, Any]:
+    data: dict[str, Any] = {}
+    section: list[str] = []
+    for raw_line in text.splitlines():
+        line = raw_line.strip()
+        if not line or line.startswith("#"):
+            continue
+        if line.startswith("[") and line.endswith("]"):
+            section = [part.strip().strip('"').strip("'") for part in line.strip("[]").split(".")]
+            current = data
+            for part in section:
+                current = current.setdefault(part, {})
+            continue
+        if "=" not in line:
+            continue
+        key, raw_value = [part.strip() for part in line.split("=", 1)]
+        value = raw_value.strip().strip('"').strip("'")
+        current = data
+        for part in section:
+            current = current.setdefault(part, {})
+        current[key] = value
+    return data
+
+
+def check_codex(
+    config_path: Path = CODEX_CONFIG,
+    auth_path: Path = CODEX_AUTH,
+    quiet_missing: bool = False,
+) -> int:
+    if not config_path.exists() or not auth_path.exists():
+        if not quiet_missing:
+            print(f"CODEX_CONFIG={'missing' if not config_path.exists() else config_path}")
+            print(f"CODEX_AUTH={'missing' if not auth_path.exists() else auth_path}")
+        return 1
+    try:
+        config = parse_toml(config_path)
+        auth = json.loads(auth_path.read_text(encoding="utf-8"))
+    except Exception as exc:
+        if not quiet_missing:
+            print(f"CODEX_ERROR={exc}")
+        return 1
+    provider_name = config.get("model_provider")
+    providers = config.get("model_providers") if isinstance(config.get("model_providers"), dict) else {}
+    provider = providers.get(provider_name) if provider_name else None
+    if not isinstance(provider, dict):
+        if not quiet_missing:
+            print("CODEX_PROVIDER=missing")
+        return 1
+    api_key = (
+        auth.get("api_key")
+        or auth.get("apiKey")
+        or auth.get("key")
+        or auth.get("token")
+        or auth.get("openai_api_key")
+        or auth.get("OPENAI_API_KEY")
+    )
+    base_url = (
+        provider.get("base_url")
+        or provider.get("baseUrl")
+        or provider.get("baseURL")
+        or provider.get("api_base")
+        or provider.get("endpoint")
+        or provider.get("openai_base_url")
+        or provider.get("OPENAI_BASE_URL")
+    )
+    image_model = provider.get("image_model") or provider.get("imageModel") or "gpt-image-2"
+    print(f"CODEX_CONFIG={config_path}")
+    print(f"CODEX_AUTH={auth_path}")
+    print(f"CODEX_PROVIDER={provider_name}")
+    print(f"API_KEY={redact(str(api_key)) if api_key else 'missing'}")
+    print(f"BASE_URL={normalize_openai_base_url(str(base_url)) if base_url else 'missing'}")
+    print(f"MODEL={image_model}")
+    return 0 if api_key and base_url else 2
 
 
 def check_ccswitch(db_path: Path = CCSWITCH_DB, app_type: str = "codex", quiet_missing: bool = False) -> int:
@@ -210,6 +303,9 @@ def main() -> int:
     parser = argparse.ArgumentParser(description="Set up relay-imagegen private config.")
     parser.add_argument("command", nargs="?", choices=["config"], help="Create or update a config file.")
     parser.add_argument("--check", action="store_true", help="Check the first usable config without printing secrets.")
+    parser.add_argument("--check-codex", action="store_true", help="Check the current Codex config/auth provider.")
+    parser.add_argument("--codex-config", help="Override the Codex config.toml path.")
+    parser.add_argument("--codex-auth", help="Override the Codex auth.json path.")
     parser.add_argument("--check-ccswitch", action="store_true", help="Check the current ccswitch Codex provider.")
     parser.add_argument("--ccswitch-db", help="Override the ccswitch SQLite database path.")
     parser.add_argument(
@@ -221,6 +317,11 @@ def main() -> int:
     parser.add_argument("--force", action="store_true", help="Overwrite an existing config.")
     args = parser.parse_args()
 
+    if args.check_codex:
+        return check_codex(
+            Path(args.codex_config) if args.codex_config else CODEX_CONFIG,
+            Path(args.codex_auth) if args.codex_auth else CODEX_AUTH,
+        )
     if args.check_ccswitch:
         return check_ccswitch(Path(args.ccswitch_db) if args.ccswitch_db else CCSWITCH_DB)
     if args.check or not args.command:
