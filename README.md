@@ -2,6 +2,30 @@
 
 [English README](README_EN.md)
 
+使用中转站时还在抱怨 Codex 对话内置生图图片比例不对？要求它 16:9，结果它还是输出 1:1？要求它输出 4K，结果输出的还是低分辨率？那你可以试试这个 Skill。
+
+配置和使用极速版：
+
+给 Codex 发：
+
+```text
+Codex，帮我安装一下这个 Skill：https://github.com/AwakeFantasy/relay-imagegen
+```
+
+使用：
+
+```
+$relay-imagegen 跑一张 16:9、4K 的风景图看看效果
+```
+
+效果：
+
+![image-20260527214630864](README/image-20260527214630864.png)
+
+为什么会有对话内置生成效果不稳定的问题呢？因为对话里的原生生图更偏“让模型按自然语言理解你的要求”，Codex 不一定会把“4K、16:9、横图”稳定地转换成底层命令参数。它可能只是把这些要求写进 prompt，让模型尽量遵守，但这不等于真的传了 `--size 3840x2160`。结果就可能被默认尺寸、工具策略或模型理解偏差带歪，跑出低分辨率、方图、比例不准的图。
+
+极简的介绍就到此结束了，下面是这个 Skill 详细的介绍：
+
 Relay Imagegen 是一个 Codex Skill，用于通过兼容 OpenAI 接口的中转站或代理生成、编辑图片，并自动保存提示词和不含密钥的出图记录。
 
 它的目标是让中转站出图流程尽可能简单、可复用、可追溯：
@@ -137,7 +161,7 @@ generated/test-YYYYMMDD-HHMMSS-2k.meta.json
 
 ## 配置方式
 
-Relay Imagegen 支持两种方式：
+Relay Imagegen 支持三种方式：
 
 1. 自动读取 Codex 当前配置，推荐给已经用 Codex 中转站的用户。
 2. 自动读取 ccswitch 当前 Codex provider，适合依赖 ccswitch 切换中转站的用户。
@@ -270,7 +294,7 @@ python ~/.codex/skills/relay-imagegen/scripts/setup.py --check-ccswitch
 
 ### 强制使用 ccswitch
 
-正常情况下不需要写额外参数，因为脚本已经默认优先 ccswitch。
+正常情况下不需要写额外参数，因为脚本会先尝试 Codex 当前配置，再尝试 ccswitch。
 
 如果你希望“ccswitch 读取失败就直接报错，不要回退到 JSON 配置”，使用：
 
@@ -295,7 +319,7 @@ python $skill generate --ccswitch-db C:/path/to/cc-switch.db --prompt-file promp
 
 ## 使用 JSON 配置文件
 
-如果你没有安装 ccswitch，或者图片中转站与 Codex 中转站不同，可以使用独立 JSON 配置。
+如果你不想复用 Codex 或 ccswitch 的当前配置，或者图片中转站与 Codex 中转站不同，可以使用独立 JSON 配置。
 
 ### 推荐：用户级配置
 
@@ -588,6 +612,8 @@ python $skill generate --prompt-file prompts/test.txt --timeout 900 --name test 
 ```text
 relay-imagegen/
   README.md
+  README_EN.md
+  README/
   SKILL.md
   LICENSE
   agents/

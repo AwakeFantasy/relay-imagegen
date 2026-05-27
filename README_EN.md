@@ -2,6 +2,30 @@
 
 [中文说明](README.md)
 
+Using a relay and still frustrated that Codex's in-chat image generation does not follow the aspect ratio? You ask for 16:9 and get 1:1; you ask for 4K and get a lower-resolution result. This Skill is built for that workflow.
+
+Ultra quick setup:
+
+Ask Codex:
+
+```text
+Codex, install this Skill for me: https://github.com/AwakeFantasy/relay-imagegen
+```
+
+Use it:
+
+```text
+$relay-imagegen Generate a 16:9 4K landscape image and show me the result
+```
+
+Example:
+
+![image-20260527214630864](README/image-20260527214630864.png)
+
+Why does this happen with in-chat image generation? The native conversational image flow is good at interpreting natural language, but Codex may not always convert "4K", "16:9", or "landscape" into stable low-level command parameters. Those requirements may only be placed in the prompt, which is not the same as passing `--size 3840x2160`. The result can be affected by default sizes, tool behavior, or model interpretation, producing lower-resolution, square, or mismatched-aspect images.
+
+That is the short version. The detailed documentation starts below.
+
 Relay Imagegen is a Codex Skill for generating and editing images through an OpenAI-compatible relay or proxy endpoint, with saved prompts and non-secret run metadata.
 
 It is designed for relay-first image workflows that are easy to reuse and trace:
@@ -123,7 +147,7 @@ generated/test-YYYYMMDD-HHMMSS-2k.meta.json
 
 ## Configuration
 
-Relay Imagegen supports two configuration sources:
+Relay Imagegen supports three configuration sources:
 
 1. Current Codex config/auth.
 2. The current ccswitch Codex provider.
@@ -253,7 +277,7 @@ python $skill generate --ccswitch-db C:/path/to/cc-switch.db --prompt-file promp
 
 ## JSON Config
 
-If you do not use ccswitch, create a private config.
+If you do not want to reuse the current Codex or ccswitch config, or your image relay differs from your Codex relay, create a private config.
 
 Recommended user-level setup:
 
@@ -531,6 +555,7 @@ python $skill generate --prompt-file prompts/test.txt --timeout 900 --name test 
 relay-imagegen/
   README.md
   README_EN.md
+  README/
   SKILL.md
   LICENSE
   agents/
