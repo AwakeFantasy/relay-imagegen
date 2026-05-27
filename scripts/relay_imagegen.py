@@ -303,6 +303,17 @@ def filter_process_output(text: str) -> str:
     return "\n".join(filtered)
 
 
+def prompt_snapshot(args: argparse.Namespace) -> str | None:
+    if args.prompt is not None:
+        return args.prompt
+    if not args.prompt_file:
+        return None
+    try:
+        return Path(args.prompt_file).read_text(encoding="utf-8")
+    except Exception as exc:
+        return f"<could not read prompt file: {exc}>"
+
+
 def write_sidecar(
     out: Path,
     args: argparse.Namespace,
@@ -323,6 +334,7 @@ def write_sidecar(
         "dimensions": dimensions,
         "prompt": args.prompt,
         "prompt_file": args.prompt_file,
+        "prompt_snapshot": prompt_snapshot(args),
         "images": images,
         "config_path": config_path,
         "config_source": "ccswitch" if str(config_path).startswith("ccswitch:") else "file",

@@ -2,17 +2,19 @@
 
 [中文说明](README.md)
 
-Relay Imagegen is a Codex Skill for generating and editing images through an OpenAI-compatible relay or proxy endpoint without storing `OPENAI_API_KEY` as a persistent system environment variable.
+Relay Imagegen is a Codex Skill for generating and editing images through an OpenAI-compatible relay or proxy endpoint, with saved prompts and non-secret run metadata.
 
-It is designed for low-friction 4K image workflows:
+It is designed for relay-first image workflows that are easy to reuse and trace:
 
-- Native 4K by default: `3840x2160`
+- Automatic ccswitch current Codex provider discovery
+- Private JSON config fallback for users without ccswitch
+- Saved and reusable prompts via `prompts/*.txt`
+- Non-secret `.meta.json` sidecar for each successful run
+- Prompt snapshots saved into sidecar metadata
+- Default size: `3840x2160`
 - Default model: `gpt-image-2`
 - Default quality: `high`
 - Default output directory: `generated/`
-- Non-secret `.meta.json` sidecar for each successful run
-- Automatic ccswitch current Codex provider discovery
-- Private JSON config fallback for users without ccswitch
 - Optional reference image downscaling before upload
 
 ## Use Cases
@@ -20,11 +22,12 @@ It is designed for low-friction 4K image workflows:
 Use this Skill when:
 
 - You generate images through a relay instead of the official OpenAI endpoint.
-- You want native `3840x2160` 4K outputs.
+- You want to save prompts as reusable files.
+- You want each run to preserve the prompt snapshot, model, size, inputs, output path, and elapsed time.
 - You do not want a persistent system-level `OPENAI_API_KEY`.
 - You already use ccswitch for Codex and want to reuse its current provider.
 - You edit images with local reference images.
-- You want each run to keep non-secret metadata such as model, size, inputs, elapsed time, and output dimensions.
+- You want high-resolution defaults such as `3840x2160`.
 
 ## How It Works
 
@@ -40,7 +43,7 @@ The wrapper:
 2. Injects `OPENAI_API_KEY` and `OPENAI_BASE_URL` only into the child process.
 3. Calls the bundled imagegen CLI.
 4. Verifies output dimensions when Pillow is available.
-5. Writes a non-secret sidecar metadata file.
+5. Writes a non-secret sidecar metadata file with a prompt snapshot.
 
 API keys are not printed, not passed as command-line arguments, and not written to sidecar files.
 
@@ -66,7 +69,7 @@ On Windows, the target directory is usually:
 C:\Users\<you>\.codex\skills\relay-imagegen
 ```
 
-After installation, Codex can use the Skill when you mention relay image generation, ccswitch, `api_key.json`, native 4K output, or `$relay-imagegen`.
+After installation, Codex can use the Skill when you mention relay image generation, saved prompts, run metadata, ccswitch, `api_key.json`, or `$relay-imagegen`.
 
 ## Quick Start
 
@@ -277,7 +280,7 @@ python $skill generate `
   --force
 ```
 
-Use `--prompt-file` for long prompts, Chinese prompts, or reusable prompts.
+Use `--prompt-file` for long prompts, Chinese prompts, or reusable prompts. Successful runs also save the prompt text into the `.meta.json` `prompt_snapshot` field.
 
 ## Edit with Reference Images
 
@@ -362,6 +365,7 @@ The sidecar includes non-secret metadata:
 - requested size and output dimensions
 - quality
 - prompt file
+- prompt snapshot
 - input reference paths
 - prepared image paths
 - elapsed seconds
@@ -447,7 +451,7 @@ https://relay.example/v1
 
 If your relay uses a different API path, use a JSON config with the exact `base_url`.
 
-### Output Is Not 4K
+### Output Size Is Not the Default Size
 
 The default requested size is:
 

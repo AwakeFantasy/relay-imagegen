@@ -2,17 +2,19 @@
 
 [English README](README_EN.md)
 
-Relay Imagegen 是一个 Codex Skill，用于通过兼容 OpenAI 接口的中转站或代理生成、编辑图片，并且不需要把 `OPENAI_API_KEY` 持久写入系统环境变量。
+Relay Imagegen 是一个 Codex Skill，用于通过兼容 OpenAI 接口的中转站或代理生成、编辑图片，并自动保存提示词和不含密钥的出图记录。
 
-它的目标是让 4K 出图流程尽可能简单：
+它的目标是让中转站出图流程尽可能简单、可复用、可追溯：
 
-- 默认原生 4K 分辨率：`3840x2160`
+- 默认优先读取当前 ccswitch 的 Codex 供应商配置
+- 没有 ccswitch 时，也支持私有 JSON 配置文件
+- 推荐使用 `prompts/*.txt` 保存和复用提示词
+- 每次成功生成后自动写入不含密钥的 `.meta.json` 记录文件
+- `.meta.json` 会保存当次提示词快照，方便复盘和复现
+- 默认分辨率：`3840x2160`
 - 默认模型：`gpt-image-2`
 - 默认质量：`high`
 - 默认输出到当前目录下的 `generated/`
-- 每次成功生成后自动写入不含密钥的 `.meta.json` 记录文件
-- 默认优先读取当前 ccswitch 的 Codex 供应商配置
-- 没有 ccswitch 时，也支持私有 JSON 配置文件
 - 支持上传前自动缩小参考图，减少传图耗时和失败概率
 
 ## 适用场景
@@ -20,11 +22,12 @@ Relay Imagegen 是一个 Codex Skill，用于通过兼容 OpenAI 接口的中转
 当你遇到这些情况时，可以使用这个 Skill：
 
 - 你使用中转站生成图片，而不是 OpenAI 官方 endpoint
-- 你希望生成 `3840x2160` 的 4K 图片
+- 你希望把提示词保存成文件并复用
+- 你希望每次出图都自动保存提示词快照、模型、尺寸、输入图和输出路径
 - 你不希望设置系统级 `OPENAI_API_KEY`
 - 你使用 ccswitch 切换 Codex 中转站，希望直接复用其中的 key 和 endpoint
 - 你想用本地参考图进行角色、构图或风格编辑
-- 你希望每次出图保留模型、尺寸、输入图、耗时等运行记录
+- 你希望默认生成较高分辨率图片，例如 `3840x2160`
 
 ## 工作方式
 
@@ -40,7 +43,7 @@ Relay Imagegen 当前是 Codex 自带图片生成脚本的包装层：
 2. 只在当前子进程运行期间注入 `OPENAI_API_KEY` 和 `OPENAI_BASE_URL`。
 3. 调用 Codex 自带的 imagegen 脚本生成或编辑图片。
 4. 验证输出图片尺寸。
-5. 写入不包含密钥的 sidecar 记录文件。
+5. 写入不包含密钥的 sidecar 记录文件，并保存当次提示词快照。
 
 真实 key 不会出现在命令行参数、输出日志或 sidecar 中。
 
@@ -72,7 +75,7 @@ C:\Users\<你的用户名>\.codex\skills\relay-imagegen
 git clone https://github.com/AwakeFantasy/relay-imagegen.git "$HOME/.codex/skills/relay-imagegen"
 ```
 
-安装后，当你在 Codex 中提到中转站出图、4K 生图、ccswitch、`api_key.json` 或 `$relay-imagegen` 时，Codex 就可以使用这个 Skill。
+安装后，当你在 Codex 中提到中转站出图、保存提示词、出图记录、ccswitch、`api_key.json` 或 `$relay-imagegen` 时，Codex 就可以使用这个 Skill。
 
 ## 最快开始
 
@@ -301,7 +304,7 @@ base_url, baseUrl, baseURL, api_base, endpoint, openai_base_url, OPENAI_BASE_URL
 
 ## 生成图片
 
-### 使用提示词文件生成 4K 图片
+### 使用提示词文件生成图片
 
 ```powershell
 $skill = "$HOME/.codex/skills/relay-imagegen/scripts/relay_imagegen.py"
@@ -329,7 +332,7 @@ python $skill generate `
   --force
 ```
 
-长提示词、中文提示词或希望保留复用的提示词，建议使用 `--prompt-file`。
+长提示词、中文提示词或希望保留复用的提示词，建议使用 `--prompt-file`。成功出图后，提示词内容也会写入 `.meta.json` 的 `prompt_snapshot` 字段。
 
 ## 使用参考图编辑图片
 
@@ -420,6 +423,7 @@ generated/character-chair-20260527-183000-4k.meta.json
 - 请求尺寸和输出尺寸
 - 图片质量
 - 提示词文件位置
+- 当次提示词快照
 - 输入参考图位置
 - 预处理图片位置
 - 耗时
@@ -505,7 +509,7 @@ https://relay.example/v1
 
 如果你的中转站使用不同 API 路径，请改用 JSON 配置，明确写入完整 `base_url`。
 
-### 输出不是 4K
+### 输出尺寸不是默认尺寸
 
 默认请求尺寸是：
 

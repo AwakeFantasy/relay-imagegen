@@ -1,22 +1,24 @@
 ---
 name: relay-imagegen
-description: Generate or edit images through a local OpenAI-compatible relay or proxy endpoint using a JSON config file instead of persistent OPENAI_API_KEY environment variables. Use when the user wants image generation via a relay, wants native 4K gpt-image output, mentions api_key.json, base_url, ccswitch warnings, or asks to repeat the local relay image workflow.
+description: Generate or edit images through a local OpenAI-compatible relay or proxy endpoint, with saved prompt files and non-secret run metadata. Use when the user wants relay/proxy image generation, reusable or saved prompts, api_key.json/base_url config, ccswitch provider reuse, or a repeatable local image workflow without persistent OPENAI_API_KEY environment variables.
 ---
 
 # Relay Imagegen
 
 ## Fast Path
 
-Use `scripts/relay_imagegen.py` directly. The defaults are tuned for low-thinking image runs:
+Use `scripts/relay_imagegen.py` directly. The defaults are tuned for low-thinking relay image runs:
 
-- Native 4K size: `3840x2160`.
+- Relay/proxy config lookup without persistent system env vars.
+- Saved prompts via `prompts/*.txt` and sidecar `prompt_snapshot`.
+- Non-secret run metadata next to every successful output.
+- Default size: `3840x2160`.
 - High quality.
 - Config lookup: `--config` first, then the current ccswitch Codex provider, then private config files.
 - Auto output path: `generated/<name>-YYYYMMDD-HHMMSS-4k.png`.
-- Sidecar metadata next to the image.
 - Optional input downscaling with `--prepare-image` or `--max-input-edge`.
 
-Minimal 4K generation:
+Minimal generation:
 
 ```powershell
 $skill = Join-Path ($env:CODEX_HOME ? $env:CODEX_HOME : "$HOME/.codex") "skills/relay-imagegen/scripts/relay_imagegen.py"
@@ -30,14 +32,14 @@ $skill = Join-Path ($env:CODEX_HOME ? $env:CODEX_HOME : "$HOME/.codex") "skills/
 python $skill generate --from-ccswitch --prompt-file prompts/prompt.txt --name output --force
 ```
 
-Minimal 4K edit with references:
+Minimal edit with references:
 
 ```powershell
 $skill = Join-Path ($env:CODEX_HOME ? $env:CODEX_HOME : "$HOME/.codex") "skills/relay-imagegen/scripts/relay_imagegen.py"
 python $skill edit --image C:/path/to/reference.jpg --prompt-file prompts/prompt.txt --name edit --prepare-image --force
 ```
 
-Prefer `--prompt-file` over `--prompt` for long prompts, Chinese text, or prompts that should not appear in shell history.
+Prefer `--prompt-file` over `--prompt` for saved/reusable prompts, long prompts, Chinese text, or prompts that should not appear in shell history. Successful runs copy the prompt text into the sidecar metadata as `prompt_snapshot`.
 
 ## Config
 
@@ -100,7 +102,7 @@ Add `.secrets/` to `.gitignore` when using project-local or skill-local config. 
 
 ## Common Commands
 
-Native 4K generation with explicit output directory:
+Generation with default relay settings:
 
 ```powershell
 $skill = Join-Path ($env:CODEX_HOME ? $env:CODEX_HOME : "$HOME/.codex") "skills/relay-imagegen/scripts/relay_imagegen.py"
@@ -116,7 +118,7 @@ If `--out` is omitted, the script writes a timestamped file under `--output-dir`
 
 Use `prompts/` for reusable prompt files in a project. Do not create `photo/prompt.txt` just because the config example uses `photo/api_key.json`; if the current workspace is already named `photo`, that would produce awkward paths such as `photo/photo/prompt.txt`.
 
-Native 4K edit with reference images:
+Edit with reference images:
 
 ```powershell
 $skill = Join-Path ($env:CODEX_HOME ? $env:CODEX_HOME : "$HOME/.codex") "skills/relay-imagegen/scripts/relay_imagegen.py"
@@ -165,6 +167,6 @@ After generation, report:
 - Whether the call used `generate` or `edit`.
 - Sidecar metadata path.
 
-The wrapper filters the noisy `OPENAI_API_KEY is set.` line from child process output. For successful calls it writes a sibling sidecar file, for example `final-4k.meta.json`, containing non-secret run metadata: mode, model, size, quality, prompt file, input image paths, prepared image paths, output dimensions, elapsed seconds, config source/path, ccswitch provider name when used, and base URL. It must never include the API key.
+The wrapper filters the noisy `OPENAI_API_KEY is set.` line from child process output. For successful calls it writes a sibling sidecar file, for example `final-4k.meta.json`, containing non-secret run metadata: mode, model, size, quality, prompt file, prompt snapshot, input image paths, prepared image paths, output dimensions, elapsed seconds, config source/path, ccswitch provider name when used, and base URL. It must never include the API key.
 
 If the relay rejects a model, size, or endpoint, report the exact non-secret error summary and suggest the smallest next adjustment, such as testing `generate` before `edit`, checking `base_url`, or switching model only if the user asks.
