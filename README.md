@@ -1,5 +1,7 @@
 # Relay Imagegen
 
+[English README](README_EN.md)
+
 Relay Imagegen 是一个 Codex Skill，用于通过兼容 OpenAI 接口的中转站或代理生成、编辑图片，并且不需要把 `OPENAI_API_KEY` 持久写入系统环境变量。
 
 它的目标是让 4K 出图流程尽可能简单：
