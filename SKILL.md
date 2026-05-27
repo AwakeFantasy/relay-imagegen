@@ -12,10 +12,10 @@ Use `scripts/relay_imagegen.py` directly. The defaults are tuned for low-thinkin
 - Relay/proxy config lookup without persistent system env vars.
 - Saved prompts via `prompts/*.txt` and sidecar `prompt_snapshot`.
 - Non-secret run metadata next to every successful output.
-- Default size: `3840x2160`.
+- Default size: `2560x1440`.
 - High quality.
 - Config lookup: `--config` first, then the current ccswitch Codex provider, then private config files.
-- Auto output path: `generated/<name>-YYYYMMDD-HHMMSS-4k.png`.
+- Auto output path: `generated/<name>-YYYYMMDD-HHMMSS-2k.png`.
 - Optional input downscaling with `--prepare-image` or `--max-input-edge`.
 
 Minimal generation:
@@ -108,13 +108,13 @@ Generation with default relay settings:
 $skill = Join-Path ($env:CODEX_HOME ? $env:CODEX_HOME : "$HOME/.codex") "skills/relay-imagegen/scripts/relay_imagegen.py"
 python $skill generate `
   --prompt-file prompts/prompt.txt `
-  --size 3840x2160 `
+  --size 2560x1440 `
   --quality high `
-  --name output-4k `
+  --name output-2k `
   --force
 ```
 
-If `--out` is omitted, the script writes a timestamped file under `--output-dir`, `RELAY_IMAGEGEN_OUTPUT_DIR`, or finally `generated`. For example: `generated/output-4k-20260526-203000-4k.png`.
+If `--out` is omitted, the script writes a timestamped file under `--output-dir`, `RELAY_IMAGEGEN_OUTPUT_DIR`, or finally `generated`. For example: `generated/output-2k-20260526-203000-2k.png`.
 
 Use `prompts/` for reusable prompt files in a project. Do not create `photo/prompt.txt` just because the config example uses `photo/api_key.json`; if the current workspace is already named `photo`, that would produce awkward paths such as `photo/photo/prompt.txt`.
 
@@ -126,9 +126,9 @@ python $skill edit `
   --image C:/path/to/composition.png `
   --image C:/path/to/character.jpg `
   --prompt-file prompts/prompt.txt `
-  --size 3840x2160 `
+  --size 2560x1440 `
   --quality high `
-  --name final-4k `
+  --name final-2k `
   --force
 ```
 
@@ -167,6 +167,6 @@ After generation, report:
 - Whether the call used `generate` or `edit`.
 - Sidecar metadata path.
 
-The wrapper filters the noisy `OPENAI_API_KEY is set.` line from child process output. For successful calls it writes a sibling sidecar file, for example `final-4k.meta.json`, containing non-secret run metadata: mode, model, size, quality, prompt file, prompt snapshot, input image paths, prepared image paths, output dimensions, elapsed seconds, config source/path, ccswitch provider name when used, and base URL. It must never include the API key.
+The wrapper filters the noisy `OPENAI_API_KEY is set.` line from child process output. For successful calls it writes a sibling sidecar file, for example `final-2k.meta.json`, containing non-secret run metadata: mode, model, size, quality, prompt file, prompt snapshot, input image paths, prepared image paths, output dimensions, elapsed seconds, config source/path, ccswitch provider name when used, and base URL. It must never include the API key.
 
 If the relay rejects a model, size, or endpoint, report the exact non-secret error summary and suggest the smallest next adjustment, such as testing `generate` before `edit`, checking `base_url`, or switching model only if the user asks.

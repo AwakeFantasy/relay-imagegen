@@ -19,7 +19,7 @@ from typing import Any
 from urllib.parse import urlsplit, urlunsplit
 
 
-DEFAULT_SIZE = "3840x2160"
+DEFAULT_SIZE = "2560x1440"
 DEFAULT_QUALITY = "high"
 DEFAULT_OUT_DIR = Path("generated")
 DEFAULT_TIMEOUT_SECONDS = 600
@@ -259,7 +259,7 @@ def default_output_path(args: argparse.Namespace) -> Path:
     else:
         base = f"relay-{args.mode}"
     timestamp = datetime.now().strftime("%Y%m%d-%H%M%S")
-    size_label = "4k" if args.size == "3840x2160" else args.size
+    size_label = "2k" if args.size == "2560x1440" else "4k" if args.size == "3840x2160" else args.size
     return out_dir / f"{sanitize_stem(base)}-{timestamp}-{size_label}.png"
 
 

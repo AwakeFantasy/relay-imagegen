@@ -11,7 +11,7 @@ It is designed for relay-first image workflows that are easy to reuse and trace:
 - Saved and reusable prompts via `prompts/*.txt`
 - Non-secret `.meta.json` sidecar for each successful run
 - Prompt snapshots saved into sidecar metadata
-- Default size: `3840x2160`
+- Default size: `2560x1440`
 - Default model: `gpt-image-2`
 - Default quality: `high`
 - Default output directory: `generated/`
@@ -27,7 +27,7 @@ Use this Skill when:
 - You do not want a persistent system-level `OPENAI_API_KEY`.
 - You already use ccswitch for Codex and want to reuse its current provider.
 - You edit images with local reference images.
-- You want high-resolution defaults such as `3840x2160`.
+- You want high-resolution defaults such as `2560x1440`.
 
 ## How It Works
 
@@ -114,8 +114,8 @@ python $skill generate --prompt-file prompts/test.txt --name test --force
 Default output:
 
 ```text
-generated/test-YYYYMMDD-HHMMSS-4k.png
-generated/test-YYYYMMDD-HHMMSS-4k.meta.json
+generated/test-YYYYMMDD-HHMMSS-2k.png
+generated/test-YYYYMMDD-HHMMSS-2k.meta.json
 ```
 
 ## Configuration
@@ -269,7 +269,7 @@ Default values:
 
 ```text
 model   = gpt-image-2
-size    = 3840x2160
+size    = 2560x1440
 quality = high
 output  = generated/
 ```
@@ -346,19 +346,19 @@ Original images are not modified.
 If `--out` is omitted:
 
 ```text
-generated/<name>-YYYYMMDD-HHMMSS-4k.png
+generated/<name>-YYYYMMDD-HHMMSS-2k.png
 ```
 
 Example:
 
 ```text
-generated/character-chair-20260527-183000-4k.png
+generated/character-chair-20260527-183000-2k.png
 ```
 
 A sidecar is written next to the image:
 
 ```text
-generated/character-chair-20260527-183000-4k.meta.json
+generated/character-chair-20260527-183000-2k.meta.json
 ```
 
 The sidecar includes non-secret metadata:
@@ -389,7 +389,7 @@ It does not include API keys.
 | `--name` | Filename stem for auto output | Derived from mode or prompt file |
 | `--out` | Exact output path | Auto-generated |
 | `--output-dir` | Auto output directory | `generated` |
-| `--size` | Output size | `3840x2160` |
+| `--size` | Output size | `2560x1440` |
 | `--quality` | Output quality | `high` |
 | `--timeout` | Timeout in seconds | `600` |
 | `--prepare-image` | Downscale references before upload | Off |
@@ -459,7 +459,7 @@ If your relay uses a different API path, use a JSON config with the exact `base_
 The default requested size is:
 
 ```text
-3840x2160
+2560x1440
 ```
 
 If your relay or model does not support this size, the request may fail or the dimension check may reject the output.

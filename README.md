@@ -11,7 +11,7 @@ Relay Imagegen 是一个 Codex Skill，用于通过兼容 OpenAI 接口的中转
 - 推荐使用 `prompts/*.txt` 保存和复用提示词
 - 每次成功生成后自动写入不含密钥的 `.meta.json` 记录文件
 - `.meta.json` 会保存当次提示词快照，方便复盘和复现
-- 默认分辨率：`3840x2160`
+- 默认分辨率：`2560x1440`
 - 默认模型：`gpt-image-2`
 - 默认质量：`high`
 - 默认输出到当前目录下的 `generated/`
@@ -27,7 +27,7 @@ Relay Imagegen 是一个 Codex Skill，用于通过兼容 OpenAI 接口的中转
 - 你不希望设置系统级 `OPENAI_API_KEY`
 - 你使用 ccswitch 切换 Codex 中转站，希望直接复用其中的 key 和 endpoint
 - 你想用本地参考图进行角色、构图或风格编辑
-- 你希望默认生成较高分辨率图片，例如 `3840x2160`
+- 你希望默认生成较高分辨率图片，例如 `2560x1440`
 
 ## 工作方式
 
@@ -128,8 +128,8 @@ python $skill generate --prompt-file prompts/test.txt --name test --force
 默认输出：
 
 ```text
-generated/test-YYYYMMDD-HHMMSS-4k.png
-generated/test-YYYYMMDD-HHMMSS-4k.meta.json
+generated/test-YYYYMMDD-HHMMSS-2k.png
+generated/test-YYYYMMDD-HHMMSS-2k.meta.json
 ```
 
 ## 配置方式
@@ -321,7 +321,7 @@ python $skill generate `
 
 ```text
 model   = gpt-image-2
-size    = 3840x2160
+size    = 2560x1440
 quality = high
 output  = generated/
 ```
@@ -404,19 +404,19 @@ generated/relay_prepared/
 如果没有指定 `--out`，图片默认输出为：
 
 ```text
-generated/<名称>-YYYYMMDD-HHMMSS-4k.png
+generated/<名称>-YYYYMMDD-HHMMSS-2k.png
 ```
 
 例如：
 
 ```text
-generated/character-chair-20260527-183000-4k.png
+generated/character-chair-20260527-183000-2k.png
 ```
 
 每次成功生成后，会自动写入同名记录文件：
 
 ```text
-generated/character-chair-20260527-183000-4k.meta.json
+generated/character-chair-20260527-183000-2k.meta.json
 ```
 
 记录内容包括：
@@ -447,7 +447,7 @@ generated/character-chair-20260527-183000-4k.meta.json
 | `--name` | 自动输出文件名的名称部分 | 根据模式或 prompt 文件生成 |
 | `--out` | 指定完整输出路径 | 自动命名 |
 | `--output-dir` | 自动命名输出目录 | `generated` |
-| `--size` | 输出分辨率 | `3840x2160` |
+| `--size` | 输出分辨率 | `2560x1440` |
 | `--quality` | 输出质量 | `high` |
 | `--timeout` | 超时时间，单位为秒 | `600` |
 | `--prepare-image` | 上传前压缩参考图 | 关闭 |
@@ -517,7 +517,7 @@ https://relay.example/v1
 默认请求尺寸是：
 
 ```text
-3840x2160
+2560x1440
 ```
 
 如果中转站或模型不支持该尺寸，生成请求可能失败，或者尺寸验证不通过。此时需要检查你所用中转站对模型和尺寸的支持情况。
