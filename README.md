@@ -1,127 +1,89 @@
 # Relay Imagegen
 
-Relay Imagegen is a Codex skill for generating or editing images through an
-OpenAI-compatible relay or proxy endpoint without storing `OPENAI_API_KEY` as a
-persistent system environment variable.
+Relay Imagegen 是一个 Codex Skill，用于通过兼容 OpenAI 接口的中转站或代理生成、编辑图片，并且不需要把 `OPENAI_API_KEY` 持久写入系统环境变量。
 
-It is designed for low-friction 4K image runs:
+它的目标是让 4K 出图流程尽可能简单：
 
-- Defaults to native 4K output: `3840x2160`.
-- Defaults to `gpt-image-2` and `quality=high`.
-- Writes results to `generated/`.
-- Writes a non-secret `.meta.json` sidecar next to each output.
-- Can read the current ccswitch Codex provider automatically.
-- Can also use private JSON config files for users without ccswitch.
-- Can downscale reference images before upload.
+- 默认原生 4K 分辨率：`3840x2160`
+- 默认模型：`gpt-image-2`
+- 默认质量：`high`
+- 默认输出到当前目录下的 `generated/`
+- 每次成功生成后自动写入不含密钥的 `.meta.json` 记录文件
+- 默认优先读取当前 ccswitch 的 Codex 供应商配置
+- 没有 ccswitch 时，也支持私有 JSON 配置文件
+- 支持上传前自动缩小参考图，减少传图耗时和失败概率
 
-## Requirements
+## 适用场景
 
-- Codex with the bundled `imagegen` system skill installed.
-- Python 3.10+.
-- An OpenAI-compatible image relay/proxy that supports the image model you use.
-- Optional: ccswitch, if you want Relay Imagegen to read your current Codex
-  provider automatically.
-- Optional: Pillow, for input image preparation and output dimension checks.
+当你遇到这些情况时，可以使用这个 Skill：
 
-Relay Imagegen is currently a wrapper around Codex's bundled image generation
-CLI:
+- 你使用中转站生成图片，而不是 OpenAI 官方 endpoint
+- 你希望生成 `3840x2160` 的 4K 图片
+- 你不希望设置系统级 `OPENAI_API_KEY`
+- 你使用 ccswitch 切换 Codex 中转站，希望直接复用其中的 key 和 endpoint
+- 你想用本地参考图进行角色、构图或风格编辑
+- 你希望每次出图保留模型、尺寸、输入图、耗时等运行记录
+
+## 工作方式
+
+Relay Imagegen 当前是 Codex 自带图片生成脚本的包装层：
 
 ```text
 ~/.codex/skills/.system/imagegen/scripts/image_gen.py
 ```
 
-## Install
+它负责：
 
-Copy this folder into your Codex skills directory:
+1. 从 ccswitch 或私有配置文件读取中转站信息。
+2. 只在当前子进程运行期间注入 `OPENAI_API_KEY` 和 `OPENAI_BASE_URL`。
+3. 调用 Codex 自带的 imagegen 脚本生成或编辑图片。
+4. 验证输出图片尺寸。
+5. 写入不包含密钥的 sidecar 记录文件。
+
+真实 key 不会出现在命令行参数、输出日志或 sidecar 中。
+
+## 环境要求
+
+- 已安装 Codex，并且带有系统 `imagegen` Skill
+- Python 3.10 或更高版本
+- 一个支持图片生成模型的 OpenAI 兼容中转站
+- 可选：ccswitch，用于自动读取当前 Codex provider
+- 可选：Pillow，用于参考图预处理和输出尺寸检查
+
+## 安装
+
+将整个仓库放到 Codex Skill 目录：
 
 ```text
 ~/.codex/skills/relay-imagegen
 ```
 
-On Windows this is usually:
+Windows 通常为：
 
 ```text
-C:\Users\<you>\.codex\skills\relay-imagegen
+C:\Users\<你的用户名>\.codex\skills\relay-imagegen
 ```
 
-After installation, Codex can trigger the skill when you mention relay image
-generation, ccswitch, `api_key.json`, 4K image output, or the skill name
-`relay-imagegen`.
-
-## Quick Start
-
-Create a prompt file in your project:
-
-```text
-prompts/test.txt
-```
-
-Then run:
+也可以从 GitHub 克隆：
 
 ```powershell
-$skill = "$HOME/.codex/skills/relay-imagegen/scripts/relay_imagegen.py"
-python $skill generate --prompt-file prompts/test.txt --name test --force
+git clone https://github.com/AwakeFantasy/relay-imagegen.git "$HOME/.codex/skills/relay-imagegen"
 ```
 
-By default, output is written to:
+安装后，当你在 Codex 中提到中转站出图、4K 生图、ccswitch、`api_key.json` 或 `$relay-imagegen` 时，Codex 就可以使用这个 Skill。
 
-```text
-generated/test-YYYYMMDD-HHMMSS-4k.png
-generated/test-YYYYMMDD-HHMMSS-4k.meta.json
-```
+## 最快开始
 
-Use `--dry-run` first if you only want to check the command shape:
+如果你已经使用 ccswitch 为 Codex 配置了中转站，那么通常不需要额外写入 key。
+
+### 1. 检查配置
 
 ```powershell
-python $skill generate --prompt-file prompts/test.txt --name test --dry-run
+$setup = "$HOME/.codex/skills/relay-imagegen/scripts/setup.py"
+python $setup --check
 ```
 
-## Configuration
-
-Relay Imagegen supports two configuration styles:
-
-1. ccswitch provider discovery.
-2. Private JSON config files.
-
-### Default Lookup Order
-
-When `--config` is not provided, `relay_imagegen.py` checks:
-
-1. Current ccswitch `codex` provider from `~/.cc-switch/cc-switch.db`.
-2. `RELAY_IMAGEGEN_CONFIG`.
-3. `photo/api_key.json` under the current project.
-4. `.secrets/image_api.json` under the current project.
-5. `.secrets/relay_imagegen.json` under the current project.
-6. This skill's private `.secrets/config.json`.
-7. `%APPDATA%/relay-imagegen/config.json` on Windows.
-8. `~/.config/relay-imagegen/config.json`.
-9. `~/.relay-imagegen.json`.
-
-Use `--config <path>` to override all default lookup.
-
-Use `--no-ccswitch` to skip ccswitch and use only file config discovery.
-
-Use `--from-ccswitch` to require ccswitch; if ccswitch cannot be read, the
-command fails instead of falling back to a file.
-
-### ccswitch Setup
-
-If you already use ccswitch for Codex, Relay Imagegen can read the current Codex
-provider directly.
-
-Check what will be used:
-
-```powershell
-python ~/.codex/skills/relay-imagegen/scripts/setup.py --check
-```
-
-or explicitly check ccswitch:
-
-```powershell
-python ~/.codex/skills/relay-imagegen/scripts/setup.py --check-ccswitch
-```
-
-Expected output looks like this:
+成功时会看到类似输出：
 
 ```text
 CCSWITCH_DB=C:\Users\you\.cc-switch\cc-switch.db
@@ -131,58 +93,189 @@ BASE_URL=https://relay.example/v1
 MODEL=gpt-image-2
 ```
 
-The key is always redacted.
+密钥只会脱敏显示。
 
-By default the script reads:
+### 2. 准备提示词文件
+
+在当前项目下创建：
+
+```text
+prompts/test.txt
+```
+
+将你的出图提示词写进去。
+
+### 3. 先进行 dry-run
+
+```powershell
+$skill = "$HOME/.codex/skills/relay-imagegen/scripts/relay_imagegen.py"
+python $skill generate --prompt-file prompts/test.txt --name test --dry-run
+```
+
+`--dry-run` 不会请求中转站，也不会产生费用，只会显示将要执行的非敏感参数和输出位置。
+
+### 4. 正式出图
+
+```powershell
+python $skill generate --prompt-file prompts/test.txt --name test --force
+```
+
+默认输出：
+
+```text
+generated/test-YYYYMMDD-HHMMSS-4k.png
+generated/test-YYYYMMDD-HHMMSS-4k.meta.json
+```
+
+## 配置方式
+
+Relay Imagegen 支持两种方式：
+
+1. 自动读取 ccswitch 当前 Codex provider，推荐给已使用 ccswitch 的用户。
+2. 使用私有 JSON 文件，适合没有安装 ccswitch 或需要单独配置图片中转站的用户。
+
+### 默认读取顺序
+
+如果没有显式提供 `--config`，脚本按下列顺序读取配置：
+
+1. 当前 ccswitch 的 `codex` provider：`~/.cc-switch/cc-switch.db`
+2. 环境变量 `RELAY_IMAGEGEN_CONFIG` 指向的 JSON 文件
+3. 当前项目下的 `photo/api_key.json`
+4. 当前项目下的 `.secrets/image_api.json`
+5. 当前项目下的 `.secrets/relay_imagegen.json`
+6. 当前 Skill 下的 `.secrets/config.json`
+7. Windows 下的 `%APPDATA%/relay-imagegen/config.json`
+8. `~/.config/relay-imagegen/config.json`
+9. `~/.relay-imagegen.json`
+
+如果你传入：
+
+```powershell
+--config C:/path/to/config.json
+```
+
+则会直接使用该配置，不尝试 ccswitch。
+
+## 使用 ccswitch
+
+### ccswitch 自动读取什么
+
+默认数据库路径是：
 
 ```text
 ~/.cc-switch/cc-switch.db
 ```
 
-You can override it:
+Windows 上通常是：
 
-```powershell
-python ~/.codex/skills/relay-imagegen/scripts/setup.py --check-ccswitch --ccswitch-db C:/path/to/cc-switch.db
-python ~/.codex/skills/relay-imagegen/scripts/relay_imagegen.py generate --ccswitch-db C:/path/to/cc-switch.db --prompt-file prompts/test.txt
+```text
+C:\Users\<你的用户名>\.cc-switch\cc-switch.db
 ```
 
-### JSON Config Setup
+脚本会在数据库中读取当前启用的 Codex provider：
 
-If you do not use ccswitch, create a private config file.
+```text
+providers where app_type = "codex" and is_current = 1
+```
 
-Recommended user-level setup:
+然后读取：
+
+```text
+key       -> providers.settings_config.auth.OPENAI_API_KEY
+base_url  -> provider_endpoints.url
+model     -> 默认使用 gpt-image-2
+```
+
+如果 ccswitch 中保存的 endpoint 是：
+
+```text
+https://relay.example
+```
+
+脚本会自动规范化为：
+
+```text
+https://relay.example/v1
+```
+
+### 检查 ccswitch
+
+普通检查默认就会先尝试 ccswitch：
+
+```powershell
+python ~/.codex/skills/relay-imagegen/scripts/setup.py --check
+```
+
+也可以显式只检查 ccswitch：
+
+```powershell
+python ~/.codex/skills/relay-imagegen/scripts/setup.py --check-ccswitch
+```
+
+### 强制使用 ccswitch
+
+正常情况下不需要写额外参数，因为脚本已经默认优先 ccswitch。
+
+如果你希望“ccswitch 读取失败就直接报错，不要回退到 JSON 配置”，使用：
+
+```powershell
+python $skill generate --from-ccswitch --prompt-file prompts/test.txt --name test --force
+```
+
+### 跳过 ccswitch
+
+如果你不想使用当前 ccswitch provider，而是想使用 JSON 配置：
+
+```powershell
+python $skill generate --no-ccswitch --prompt-file prompts/test.txt --name test --force
+```
+
+### 指定其他 ccswitch 数据库
+
+```powershell
+python $setup --check-ccswitch --ccswitch-db C:/path/to/cc-switch.db
+python $skill generate --ccswitch-db C:/path/to/cc-switch.db --prompt-file prompts/test.txt --name test --force
+```
+
+## 使用 JSON 配置文件
+
+如果你没有安装 ccswitch，或者图片中转站与 Codex 中转站不同，可以使用独立 JSON 配置。
+
+### 推荐：用户级配置
+
+运行：
 
 ```powershell
 python ~/.codex/skills/relay-imagegen/scripts/setup.py config --scope user
 ```
 
-This writes:
+Windows 下会写入：
 
 ```text
-%APPDATA%/relay-imagegen/config.json
+%APPDATA%\relay-imagegen\config.json
 ```
 
-For a skill-local setup:
+这种方式适合长期使用，而且不会把密钥放进 Skill 仓库中。
+
+### Skill 私有配置
+
+如果你只在本机自己使用，也可以写入 Skill 私有目录：
 
 ```powershell
 python ~/.codex/skills/relay-imagegen/scripts/setup.py config --scope skill
 ```
 
-This writes:
+文件位置为：
 
 ```text
 ~/.codex/skills/relay-imagegen/.secrets/config.json
 ```
 
-The setup helper asks for:
+`.secrets/` 已在仓库的 `.gitignore` 中忽略，不应上传到 GitHub。
 
-```text
-Relay base_url:
-Model [gpt-image-2]:
-API key (hidden):
-```
+### 手动创建 JSON
 
-You can also create the JSON manually:
+配置文件结构如下：
 
 ```json
 {
@@ -192,33 +285,55 @@ You can also create the JSON manually:
 }
 ```
 
-Accepted API key field aliases:
+支持的 key 字段名：
 
 ```text
 api_key, apiKey, key, token, openai_api_key, OPENAI_API_KEY
 ```
 
-Accepted base URL field aliases:
+支持的 endpoint 字段名：
 
 ```text
 base_url, baseUrl, baseURL, api_base, endpoint, openai_base_url, OPENAI_BASE_URL
 ```
 
-Never commit real config files. `.secrets/` is ignored by this repository.
+## 生成图片
 
-## Usage
-
-### Generate an Image
+### 使用提示词文件生成 4K 图片
 
 ```powershell
 $skill = "$HOME/.codex/skills/relay-imagegen/scripts/relay_imagegen.py"
-python $skill generate --prompt-file prompts/test.txt --name test --force
+python $skill generate `
+  --prompt-file prompts/test.txt `
+  --name test `
+  --force
 ```
 
-### Edit with Reference Images
+默认等价于：
+
+```text
+model   = gpt-image-2
+size    = 3840x2160
+quality = high
+output  = generated/
+```
+
+### 直接传入简短提示词
 
 ```powershell
-$skill = "$HOME/.codex/skills/relay-imagegen/scripts/relay_imagegen.py"
+python $skill generate `
+  --prompt "A quiet cinematic room with warm soft lighting." `
+  --name room `
+  --force
+```
+
+长提示词、中文提示词或希望保留复用的提示词，建议使用 `--prompt-file`。
+
+## 使用参考图编辑图片
+
+### 单张参考图
+
+```powershell
 python $skill edit `
   --image C:/path/to/reference.jpg `
   --prompt-file prompts/edit.txt `
@@ -227,181 +342,192 @@ python $skill edit `
   --force
 ```
 
-### Require ccswitch
-
-```powershell
-python $skill generate --from-ccswitch --prompt-file prompts/test.txt --name test --force
-```
-
-### Skip ccswitch
-
-```powershell
-python $skill generate --no-ccswitch --prompt-file prompts/test.txt --name test --force
-```
-
-### Use an Explicit Config File
-
-```powershell
-python $skill generate --config .secrets/image_api.json --prompt-file prompts/test.txt --name test --force
-```
-
-### Choose Output Directory
-
-```powershell
-python $skill generate --prompt-file prompts/test.txt --output-dir my-images --name test --force
-```
-
-### Set Timeout
-
-```powershell
-python $skill generate --prompt-file prompts/test.txt --timeout 900 --name slow-test --force
-```
-
-### Downscale Reference Images
+### 多张参考图
 
 ```powershell
 python $skill edit `
-  --image C:/path/to/large-reference.jpg `
+  --image C:/path/to/composition.png `
+  --image C:/path/to/character.jpg `
   --prompt-file prompts/edit.txt `
-  --max-input-edge 2048 `
-  --name prepared-edit `
+  --name final `
+  --prepare-image `
   --force
 ```
 
-`--max-input-edge` also enables image preparation.
+适合：
 
-## Important Options
+- 一张图作为场景或构图参考
+- 一张图作为人物设定或服装参考
+- 生成“现实照片环境中出现二次元角色”之类的合成画面
 
-```text
-mode                 generate or edit
---prompt-file        prompt text file, recommended for long prompts
---prompt             inline prompt, useful for quick tests
---image              reference image for edit mode, repeatable
---name               output filename stem
---out                exact output path
---output-dir         output directory when --out is omitted, default generated
---size               output size, default 3840x2160
---quality            image quality, default high
---timeout            process timeout in seconds, default 600
---prepare-image      downscale edit inputs before upload
---max-input-edge     max reference image edge, default 2048 when preparing
---dry-run            print the non-secret command shape and exit
---force              pass overwrite behavior to the bundled imagegen CLI
---config             explicit JSON config path
---from-ccswitch      require ccswitch current Codex provider
---no-ccswitch        skip ccswitch lookup
---ccswitch-db        override ccswitch SQLite path
-```
+## 参考图预处理
 
-## Output and Metadata
+高分辨率参考图可能上传慢、占用更高，或者增加中转站请求失败概率。
 
-If `--out` is omitted, Relay Imagegen creates a timestamped output:
-
-```text
-generated/<name>-YYYYMMDD-HHMMSS-4k.png
-```
-
-It also writes:
-
-```text
-generated/<name>-YYYYMMDD-HHMMSS-4k.meta.json
-```
-
-The sidecar includes non-secret metadata:
-
-- mode
-- model
-- size
-- quality
-- prompt file
-- input image paths
-- prepared image paths
-- output dimensions when Pillow is available
-- elapsed seconds
-- config source
-- ccswitch provider name when used
-- base URL without query string
-
-It must not include API keys.
-
-## Security Notes
-
-- Do not pass API keys on the command line.
-- Do not store keys in persistent system environment variables if that triggers
-  warnings in your local tooling.
-- Prefer ccswitch discovery or private JSON config files.
-- Keep `.secrets/` out of Git.
-- The wrapper injects `OPENAI_API_KEY` and `OPENAI_BASE_URL` only into the child
-  process that runs the bundled imagegen CLI.
-- The wrapper filters the bundled CLI's noisy `OPENAI_API_KEY is set.` line.
-
-## Troubleshooting
-
-### `CONFIG=missing`
-
-Run:
-
-```powershell
-python ~/.codex/skills/relay-imagegen/scripts/setup.py --check-ccswitch
-```
-
-If ccswitch is unavailable, create a file config:
-
-```powershell
-python ~/.codex/skills/relay-imagegen/scripts/setup.py config --scope user
-```
-
-### ccswitch Finds a Base URL Without `/v1`
-
-Relay Imagegen normalizes root endpoints automatically. For example:
-
-```text
-https://relay.example
-```
-
-becomes:
-
-```text
-https://relay.example/v1
-```
-
-If your relay needs a different path, use a JSON config with the exact
-`base_url`.
-
-### Output Size Mismatch
-
-The default requested size is:
-
-```text
-3840x2160
-```
-
-If the relay or model does not support that size, the command may fail or the
-dimension check may reject the output. Try a supported size only after checking
-your relay's model capabilities.
-
-### Large Reference Images
-
-Use:
+使用：
 
 ```powershell
 --prepare-image
 ```
 
-or:
+会在上传前将参考图最长边压缩到默认 `2048` 像素。
+
+也可以自行指定最大边长：
 
 ```powershell
---max-input-edge 2048
+python $skill edit `
+  --image C:/path/to/large-reference.jpg `
+  --prompt-file prompts/edit.txt `
+  --max-input-edge 1536 `
+  --name prepared-edit `
+  --force
 ```
 
-to create prepared upload copies under `generated/relay_prepared/`.
+处理后的上传副本保存在：
 
-## Repository Layout
+```text
+generated/relay_prepared/
+```
+
+原始图片不会被修改。
+
+## 输出文件和运行记录
+
+如果没有指定 `--out`，图片默认输出为：
+
+```text
+generated/<名称>-YYYYMMDD-HHMMSS-4k.png
+```
+
+例如：
+
+```text
+generated/character-chair-20260527-183000-4k.png
+```
+
+每次成功生成后，会自动写入同名记录文件：
+
+```text
+generated/character-chair-20260527-183000-4k.meta.json
+```
+
+记录内容包括：
+
+- 使用的是 `generate` 还是 `edit`
+- 模型
+- 请求尺寸和输出尺寸
+- 图片质量
+- 提示词文件位置
+- 输入参考图位置
+- 预处理图片位置
+- 耗时
+- 配置来源
+- 使用 ccswitch 时的 provider 名称
+- 不含查询参数的 base URL
+
+记录文件不会包含 API key。
+
+## 常用参数
+
+| 参数 | 说明 | 默认值 |
+| --- | --- | --- |
+| `generate` / `edit` | 生成新图或使用参考图编辑 | 必填 |
+| `--prompt-file` | 从文本文件读取提示词，推荐使用 | 无 |
+| `--prompt` | 直接传入简短提示词 | 无 |
+| `--image` | `edit` 模式的参考图，可重复传入 | 无 |
+| `--name` | 自动输出文件名的名称部分 | 根据模式或 prompt 文件生成 |
+| `--out` | 指定完整输出路径 | 自动命名 |
+| `--output-dir` | 自动命名输出目录 | `generated` |
+| `--size` | 输出分辨率 | `3840x2160` |
+| `--quality` | 输出质量 | `high` |
+| `--timeout` | 超时时间，单位为秒 | `600` |
+| `--prepare-image` | 上传前压缩参考图 | 关闭 |
+| `--max-input-edge` | 指定参考图最大边长，同时开启预处理 | `2048` |
+| `--dry-run` | 只检查命令和输出位置，不实际请求 | 关闭 |
+| `--force` | 允许覆盖目标输出 | 关闭 |
+| `--config` | 显式指定 JSON 配置 | 自动读取 |
+| `--from-ccswitch` | 强制使用 ccswitch，失败不回退 | 关闭 |
+| `--no-ccswitch` | 不读取 ccswitch | 关闭 |
+| `--ccswitch-db` | 指定 ccswitch 数据库位置 | `~/.cc-switch/cc-switch.db` |
+
+## 安全说明
+
+- 不要把真实 API key 作为命令行参数传入。
+- 不要把真实配置文件提交到 GitHub。
+- 不需要把 `OPENAI_API_KEY` 永久写入用户或系统环境变量。
+- ccswitch 模式只读取当前 provider，不会复制 key 到 Skill 目录。
+- JSON 配置模式只在运行时读取 key。
+- key 只会临时注入子进程环境。
+- 控制台只会显示脱敏后的 key。
+- `.meta.json` 运行记录不会包含 key。
+
+## 故障排查
+
+### 没有找到配置
+
+运行：
+
+```powershell
+python ~/.codex/skills/relay-imagegen/scripts/setup.py --check
+```
+
+如果没有安装或没有配置 ccswitch，创建用户级配置：
+
+```powershell
+python ~/.codex/skills/relay-imagegen/scripts/setup.py config --scope user
+```
+
+### 不想使用 ccswitch 当前 provider
+
+运行时增加：
+
+```powershell
+--no-ccswitch
+```
+
+然后提供 JSON 配置，或者让脚本自动发现私有配置文件。
+
+### ccswitch endpoint 不带 `/v1`
+
+如果读取到的是根地址，例如：
+
+```text
+https://relay.example
+```
+
+脚本会自动转换为：
+
+```text
+https://relay.example/v1
+```
+
+如果你的中转站使用不同 API 路径，请改用 JSON 配置，明确写入完整 `base_url`。
+
+### 输出不是 4K
+
+默认请求尺寸是：
+
+```text
+3840x2160
+```
+
+如果中转站或模型不支持该尺寸，生成请求可能失败，或者尺寸验证不通过。此时需要检查你所用中转站对模型和尺寸的支持情况。
+
+### 请求时间过长
+
+可以提高超时时间：
+
+```powershell
+python $skill generate --prompt-file prompts/test.txt --timeout 900 --name test --force
+```
+
+## 仓库结构
 
 ```text
 relay-imagegen/
-  SKILL.md
   README.md
+  SKILL.md
+  LICENSE
   agents/
     openai.yaml
   scripts/
@@ -409,5 +535,14 @@ relay-imagegen/
     setup.py
 ```
 
-Private files such as `.secrets/config.json` are intentionally not part of the
-repository.
+以下内容不会包含在公开仓库中：
+
+```text
+.secrets/config.json
+generated/
+*.meta.json
+```
+
+## License
+
+[MIT License](LICENSE)
