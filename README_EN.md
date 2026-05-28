@@ -2,7 +2,7 @@
 
 [中文说明](README.md)
 
-Fixes the awkward parts of relay-based Codex image generation: unstable resolution, aspect ratio, and output records.
+Fixes the awkward parts of relay-based Codex image generation: unstable resolution, aspect ratio, prompt records, and output records.
 
 Using a relay and still frustrated that Codex's in-chat image generation does not follow the aspect ratio? You ask for 16:9 and get 1:1; you ask for 4K and get a lower-resolution result. This Skill is built for that workflow.
 
