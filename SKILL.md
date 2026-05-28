@@ -172,8 +172,9 @@ python $skill edit `
 - `--ccswitch-db <path>`: Override the ccswitch SQLite database path.
 - `--timeout <seconds>`: Cap how long the relay call can run. Default is `600`.
 - `--output-dir <path>`: Directory for auto-named outputs when `--out` is omitted. Default is `generated`, or `RELAY_IMAGEGEN_OUTPUT_DIR` if set.
-- `--prepare-image`: Downscale edit input images before upload. Default edge is `2048`.
+- `--prepare-image`: Downscale edit input images before upload. Default edge is `2048`; prepared copies are temporary and deleted after the run.
 - `--max-input-edge <pixels>`: Downscale edit inputs to fit this max edge. Also enables image preparation.
+- `--keep-prepared`: Keep prepared upload copies under `generated/relay_prepared/` for debugging.
 - `--name <slug>`: Use this base name when `--out` is omitted.
 - `--dry-run`: Print the non-secret command shape without calling the relay.
 
@@ -187,6 +188,6 @@ After generation, report:
 - Whether the call used `generate` or `edit`.
 - Sidecar metadata path.
 
-The wrapper filters the noisy `OPENAI_API_KEY is set.` line from child process output. For successful calls it writes a sibling sidecar file, for example `final-2k.meta.json`, containing non-secret run metadata: mode, model, size, quality, prompt file, prompt snapshot, input image paths, prepared image paths, output dimensions, elapsed seconds, config source/path, Codex or ccswitch provider name when used, and base URL. It must never include the API key.
+The wrapper filters the noisy `OPENAI_API_KEY is set.` line from child process output. For successful calls it writes a sibling sidecar file, for example `final-2k.meta.json`, containing non-secret run metadata: mode, model, size, quality, prompt file, prompt snapshot, input image paths, prepared image dimensions, output dimensions, elapsed seconds, config source/path, Codex or ccswitch provider name when used, and base URL. It must never include the API key.
 
 If the relay rejects a model, size, or endpoint, report the exact non-secret error summary and suggest the smallest next adjustment, such as testing `generate` before `edit`, checking `base_url`, or switching model only if the user asks.

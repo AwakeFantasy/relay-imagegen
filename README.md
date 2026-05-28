@@ -465,7 +465,15 @@ python $skill edit `
   --force
 ```
 
-处理后的上传副本保存在：
+默认情况下，处理后的上传副本只保存在临时目录中，运行结束后会自动删除，不会污染当前项目。
+
+如果你想保留这些副本用于调试，可以加：
+
+```powershell
+--keep-prepared
+```
+
+此时副本会保存在：
 
 ```text
 generated/relay_prepared/
@@ -502,7 +510,7 @@ generated/character-chair-20260527-183000-2k.meta.json
 - 提示词文件位置
 - 当次提示词快照
 - 输入参考图位置
-- 预处理图片位置
+- 预处理图片尺寸；默认不保留临时预处理图片路径
 - 耗时
 - 配置来源
 - 使用 ccswitch 时的 provider 名称
@@ -526,6 +534,7 @@ generated/character-chair-20260527-183000-2k.meta.json
 | `--timeout` | 超时时间，单位为秒 | `600` |
 | `--prepare-image` | 上传前压缩参考图 | 关闭 |
 | `--max-input-edge` | 指定参考图最大边长，同时开启预处理 | `2048` |
+| `--keep-prepared` | 保留预处理上传副本到 `generated/relay_prepared/` | 关闭 |
 | `--dry-run` | 只检查命令和输出位置，不实际请求 | 关闭 |
 | `--force` | 允许覆盖目标输出 | 关闭 |
 | `--config` | 显式指定 JSON 配置 | 自动读取 |

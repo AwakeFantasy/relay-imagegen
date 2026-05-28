@@ -407,7 +407,15 @@ python $skill edit `
   --force
 ```
 
-Prepared upload copies are written under:
+By default, prepared upload copies are stored in a temporary directory and deleted after the run, so they do not clutter the current project.
+
+If you want to keep them for debugging, add:
+
+```powershell
+--keep-prepared
+```
+
+Then copies are written under:
 
 ```text
 generated/relay_prepared/
@@ -444,7 +452,7 @@ The sidecar includes non-secret metadata:
 - prompt file
 - prompt snapshot
 - input reference paths
-- prepared image paths
+- prepared image dimensions; temporary prepared image paths are not kept by default
 - elapsed seconds
 - config source
 - ccswitch provider name when used
@@ -468,6 +476,7 @@ It does not include API keys.
 | `--timeout` | Timeout in seconds | `600` |
 | `--prepare-image` | Downscale references before upload | Off |
 | `--max-input-edge` | Reference max edge, also enables preparation | `2048` |
+| `--keep-prepared` | Keep prepared upload copies under `generated/relay_prepared/` | Off |
 | `--dry-run` | Print non-secret command shape only | Off |
 | `--force` | Allow overwrite behavior in bundled CLI | Off |
 | `--config` | Explicit JSON config path | Auto lookup |

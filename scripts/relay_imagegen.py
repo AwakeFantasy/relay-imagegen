@@ -14,6 +14,7 @@ import re
 import sqlite3
 import subprocess
 import sys
+import tempfile
 import time
 from typing import Any
 from urllib.parse import urlsplit, urlunsplit
@@ -356,13 +357,12 @@ def default_output_path(args: argparse.Namespace) -> Path:
     return out_dir / f"{sanitize_stem(base)}-{timestamp}-{size_label}.png"
 
 
-def prepared_image_path(out: Path, image: Path, index: int) -> Path:
-    prep_dir = out.parent / "relay_prepared"
+def prepared_image_path(prep_dir: Path, out: Path, image: Path, index: int) -> Path:
     prep_dir.mkdir(parents=True, exist_ok=True)
     return prep_dir / f"{out.stem}-input{index}-{image.stem}.jpg"
 
 
-def prepare_images(args: argparse.Namespace, out: Path) -> list[dict[str, str | int]]:
+def prepare_images(args: argparse.Namespace, out: Path, prep_dir: Path | None = None, prepared_temporary: bool = False) -> list[dict[str, str | int | bool]]:
     if args.mode != "edit" or not args.image:
         return []
     if not args.prepare_image and not args.max_input_edge:
@@ -379,7 +379,7 @@ def prepare_images(args: argparse.Namespace, out: Path) -> list[dict[str, str | 
         src = Path(raw)
         if not src.exists():
             die(f"Image file not found: {src}")
-        dst = prepared_image_path(out, src, index)
+        dst = prepared_image_path(prep_dir or out.parent / "relay_prepared", out, src, index)
         with Image.open(src) as img:
             original_size = img.size
             img = img.convert("RGB")
@@ -391,6 +391,7 @@ def prepare_images(args: argparse.Namespace, out: Path) -> list[dict[str, str | 
                 "original": str(src),
                 "used": str(dst),
                 "prepared": True,
+                "prepared_temporary": prepared_temporary,
                 "original_width": original_size[0],
                 "original_height": original_size[1],
                 "used_width": used_size[0],
@@ -399,6 +400,17 @@ def prepare_images(args: argparse.Namespace, out: Path) -> list[dict[str, str | 
             }
         )
     return prepared
+
+
+def images_for_metadata(images: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    metadata_images = []
+    for image in images:
+        item = dict(image)
+        if item.get("prepared") and item.get("prepared_temporary"):
+            item.pop("used", None)
+            item["prepared_copy"] = "temporary_deleted_after_run"
+        metadata_images.append(item)
+    return metadata_images
 
 
 def filter_process_output(text: str) -> str:
@@ -442,7 +454,7 @@ def write_sidecar(
         "prompt": args.prompt,
         "prompt_file": args.prompt_file,
         "prompt_snapshot": prompt_snapshot(args),
-        "images": images,
+        "images": images_for_metadata(images),
         "config_path": config_path,
         "config_source": "codex" if str(config_path).startswith("codex:") else "ccswitch" if str(config_path).startswith("ccswitch:") else "file",
         "codex_provider": cfg.get("codex_provider_name"),
@@ -513,6 +525,7 @@ def main() -> int:
     parser.add_argument("--timeout", type=int, default=DEFAULT_TIMEOUT_SECONDS)
     parser.add_argument("--prepare-image", action="store_true")
     parser.add_argument("--max-input-edge", type=int)
+    parser.add_argument("--keep-prepared", action="store_true", help="Keep prepared upload copies under generated/relay_prepared.")
     parser.add_argument("--force", action="store_true")
     parser.add_argument("--dry-run", action="store_true")
     args = parser.parse_args()
@@ -530,52 +543,60 @@ def main() -> int:
     out = Path(args.out) if args.out else default_output_path(args)
     args.out = str(out)
     out.parent.mkdir(parents=True, exist_ok=True)
-    images = prepare_images(args, out)
+    needs_prepared_images = args.mode == "edit" and args.image and (args.prepare_image or args.max_input_edge)
+    temp_context = (
+        contextlib.nullcontext(None)
+        if not needs_prepared_images or args.keep_prepared
+        else tempfile.TemporaryDirectory(prefix="relay-imagegen-")
+    )
+    with temp_context as temp_dir:
+        prep_dir = out.parent / "relay_prepared" if args.keep_prepared and needs_prepared_images else Path(temp_dir) if temp_dir else None
+        images = prepare_images(args, out, prep_dir, prepared_temporary=bool(needs_prepared_images and not args.keep_prepared))
 
-    env = os.environ.copy()
-    env["OPENAI_API_KEY"] = str(cfg["api_key"])
-    env["OPENAI_BASE_URL"] = str(cfg["base_url"])
+        env = os.environ.copy()
+        env["OPENAI_API_KEY"] = str(cfg["api_key"])
+        env["OPENAI_BASE_URL"] = str(cfg["base_url"])
 
-    print(f"MODE={args.mode}")
-    print(f"MODEL={args.model or cfg.get('model', 'gpt-image-2')}")
-    print(f"SIZE={args.size}")
-    print(f"OUT={out}")
-    print(f"TIMEOUT={args.timeout}")
-    if cfg.get("codex_provider_name"):
-        print(f"CODEX_PROVIDER={cfg['codex_provider_name']}")
-    if cfg.get("ccswitch_provider_name"):
-        print(f"CCSWITCH_PROVIDER={cfg['ccswitch_provider_name']}")
+        print(f"MODE={args.mode}")
+        print(f"MODEL={args.model or cfg.get('model', 'gpt-image-2')}")
+        print(f"SIZE={args.size}")
+        print(f"OUT={out}")
+        print(f"TIMEOUT={args.timeout}")
+        if cfg.get("codex_provider_name"):
+            print(f"CODEX_PROVIDER={cfg['codex_provider_name']}")
+        if cfg.get("ccswitch_provider_name"):
+            print(f"CCSWITCH_PROVIDER={cfg['ccswitch_provider_name']}")
 
-    cmd = build_command(args, cfg, images)
-    if args.dry_run:
-        redacted = ["<python>", *cmd[1:]]
-        print("DRY_RUN=1")
-        print("COMMAND=" + " ".join(redacted))
+        cmd = build_command(args, cfg, images)
+        if args.dry_run:
+            redacted = ["<python>", *cmd[1:]]
+            print("DRY_RUN=1")
+            print("COMMAND=" + " ".join(redacted))
+            return 0
+
+        started = time.time()
+        try:
+            result = subprocess.run(
+                cmd,
+                env=env,
+                text=True,
+                capture_output=True,
+                timeout=args.timeout,
+            )
+        except subprocess.TimeoutExpired:
+            die(f"Image generation timed out after {args.timeout}s.", code=124)
+
+        stdout = filter_process_output(result.stdout or "")
+        stderr = filter_process_output(result.stderr or "")
+        if stdout:
+            print(stdout)
+        if stderr:
+            print(stderr, file=sys.stderr)
+        if result.returncode != 0:
+            return result.returncode
+        dimensions = verify_dimensions(out, args.size)
+        write_sidecar(out, args, cfg, config_path, images, dimensions, time.time() - started)
         return 0
-
-    started = time.time()
-    try:
-        result = subprocess.run(
-            cmd,
-            env=env,
-            text=True,
-            capture_output=True,
-            timeout=args.timeout,
-        )
-    except subprocess.TimeoutExpired:
-        die(f"Image generation timed out after {args.timeout}s.", code=124)
-
-    stdout = filter_process_output(result.stdout or "")
-    stderr = filter_process_output(result.stderr or "")
-    if stdout:
-        print(stdout)
-    if stderr:
-        print(stderr, file=sys.stderr)
-    if result.returncode != 0:
-        return result.returncode
-    dimensions = verify_dimensions(out, args.size)
-    write_sidecar(out, args, cfg, config_path, images, dimensions, time.time() - started)
-    return 0
 
 
 if __name__ == "__main__":
