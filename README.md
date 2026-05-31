@@ -32,7 +32,8 @@ Relay Imagegen 是一个 Codex Skill，用于通过兼容 OpenAI 接口的中转
 
 它的目标是让中转站出图流程尽可能简单、可复用、可追溯：
 
-- 默认优先读取 Codex 当前生效的中转站配置
+- 支持为生图单独配置中转站站点和 key
+- 可自动读取 Codex 当前生效的中转站配置
 - 也可以读取当前 ccswitch 的 Codex 供应商配置
 - 没有 ccswitch 时，也支持私有 JSON 配置文件
 - 推荐使用 `prompts/*.txt` 保存和复用提示词
@@ -67,7 +68,7 @@ Relay Imagegen 当前是 Codex 自带图片生成脚本的包装层：
 
 它负责：
 
-1. 从 Codex 当前配置、ccswitch 或私有配置文件读取中转站信息。
+1. 从生图专用私有配置、Codex 当前配置、ccswitch 或其他私有配置文件读取中转站信息。
 2. 只在当前子进程运行期间注入 `OPENAI_API_KEY` 和 `OPENAI_BASE_URL`。
 3. 调用 Codex 自带的 imagegen 脚本生成或编辑图片。
 4. 验证输出图片尺寸。
@@ -165,21 +166,21 @@ generated/test-YYYYMMDD-HHMMSS-2k.meta.json
 
 Relay Imagegen 支持三种方式：
 
-1. 自动读取 Codex 当前配置，推荐给已经用 Codex 中转站的用户。
-2. 自动读取 ccswitch 当前 Codex provider，适合依赖 ccswitch 切换中转站的用户。
-3. 使用私有 JSON 文件，适合需要单独配置图片中转站的用户。
+1. 使用私有 JSON 文件，适合需要为生图单独配置站点和 key 的用户。
+2. 自动读取 Codex 当前配置，适合已经用 Codex 中转站的用户。
+3. 自动读取 ccswitch 当前 Codex provider，适合依赖 ccswitch 切换中转站的用户。
 
 ### 默认读取顺序
 
 如果没有显式提供 `--config`，脚本按下列顺序读取配置：
 
-1. Codex 当前配置：`~/.codex/config.toml` 和 `~/.codex/auth.json`
-2. 当前 ccswitch 的 `codex` provider：`~/.cc-switch/cc-switch.db`
-3. 环境变量 `RELAY_IMAGEGEN_CONFIG` 指向的 JSON 文件
-4. 当前项目下的 `photo/api_key.json`
-5. 当前项目下的 `.secrets/image_api.json`
-6. 当前项目下的 `.secrets/relay_imagegen.json`
-7. 当前 Skill 下的 `.secrets/config.json`
+1. 当前 Skill 下的 `.secrets/config.json`，如果存在且读取成功
+2. Codex 当前配置：`~/.codex/config.toml` 和 `~/.codex/auth.json`
+3. 当前 ccswitch 的 `codex` provider：`~/.cc-switch/cc-switch.db`
+4. 环境变量 `RELAY_IMAGEGEN_CONFIG` 指向的 JSON 文件
+5. 当前项目下的 `photo/api_key.json`
+6. 当前项目下的 `.secrets/image_api.json`
+7. 当前项目下的 `.secrets/relay_imagegen.json`
 8. Windows 下的 `%APPDATA%/relay-imagegen/config.json`
 9. `~/.config/relay-imagegen/config.json`
 10. `~/.relay-imagegen.json`
@@ -194,7 +195,7 @@ Relay Imagegen 支持三种方式：
 
 ## 使用 Codex 当前配置
 
-这是默认优先级最高的自动配置来源。
+这是常用的自动配置来源。如果当前 Skill 下存在可用的 `.secrets/config.json`，会优先使用该生图专用配置。
 
 脚本会读取：
 
@@ -282,7 +283,7 @@ https://relay.example/v1
 
 ### 检查 ccswitch
 
-普通检查默认会先尝试 Codex 配置，再尝试 ccswitch：
+普通检查会按默认读取顺序尝试配置，包括生图专用配置、Codex 配置和 ccswitch：
 
 ```powershell
 python ~/.codex/skills/relay-imagegen/scripts/setup.py --check
@@ -296,7 +297,7 @@ python ~/.codex/skills/relay-imagegen/scripts/setup.py --check-ccswitch
 
 ### 强制使用 ccswitch
 
-正常情况下不需要写额外参数，因为脚本会先尝试 Codex 当前配置，再尝试 ccswitch。
+正常情况下不需要写额外参数，因为脚本会按默认读取顺序尝试生图专用配置、Codex 当前配置和 ccswitch。
 
 如果你希望“ccswitch 读取失败就直接报错，不要回退到 JSON 配置”，使用：
 
@@ -321,7 +322,7 @@ python $skill generate --ccswitch-db C:/path/to/cc-switch.db --prompt-file promp
 
 ## 使用 JSON 配置文件
 
-如果你不想复用 Codex 或 ccswitch 的当前配置，或者图片中转站与 Codex 中转站不同，可以使用独立 JSON 配置。
+如果你不想复用 Codex 或 ccswitch 的当前配置，或者图片中转站与 Codex 中转站不同，可以使用独立 JSON 配置，为生图单独指定站点和 key。
 
 ### 推荐：用户级配置
 
@@ -354,6 +355,8 @@ python ~/.codex/skills/relay-imagegen/scripts/setup.py config --scope skill
 ```
 
 `.secrets/` 已在仓库的 `.gitignore` 中忽略，不应上传到 GitHub。
+
+这个文件会在默认读取顺序中优先于 Codex 配置。它缺失或读取失败时会被静默跳过，再继续尝试 Codex、ccswitch 和其他私有配置。
 
 ### 手动创建 JSON
 

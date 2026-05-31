@@ -32,7 +32,8 @@ Relay Imagegen is a Codex Skill for generating and editing images through an Ope
 
 It is designed for relay-first image workflows that are easy to reuse and trace:
 
-- Current Codex config/auth discovery by default
+- Dedicated image-generation relay endpoint and key configuration
+- Current Codex config/auth discovery when no dedicated image config is present
 - Automatic ccswitch current Codex provider discovery
 - Private JSON config fallback for users without ccswitch
 - Saved and reusable prompts via `prompts/*.txt`
@@ -67,7 +68,7 @@ Relay Imagegen wraps Codex's bundled image generation CLI:
 
 The wrapper:
 
-1. Reads relay settings from current Codex config, ccswitch, or a private JSON config file.
+1. Reads relay settings from a dedicated image config, current Codex config, ccswitch, or another private JSON config file.
 2. Injects `OPENAI_API_KEY` and `OPENAI_BASE_URL` only into the child process.
 3. Calls the bundled imagegen CLI.
 4. Verifies output dimensions when Pillow is available.
@@ -151,21 +152,21 @@ generated/test-YYYYMMDD-HHMMSS-2k.meta.json
 
 Relay Imagegen supports three configuration sources:
 
-1. Current Codex config/auth.
-2. The current ccswitch Codex provider.
-3. Private JSON config files.
+1. Private JSON config files for a dedicated image-generation endpoint and key.
+2. Current Codex config/auth.
+3. The current ccswitch Codex provider.
 
 ### Default Lookup Order
 
 If `--config` is not provided, the script checks:
 
-1. Current Codex config/auth: `~/.codex/config.toml` and `~/.codex/auth.json`
-2. Current ccswitch `codex` provider: `~/.cc-switch/cc-switch.db`
-3. `RELAY_IMAGEGEN_CONFIG`
-4. `photo/api_key.json` under the current project
-5. `.secrets/image_api.json` under the current project
-6. `.secrets/relay_imagegen.json` under the current project
-7. `.secrets/config.json` under this Skill
+1. `.secrets/config.json` under this Skill, if it exists and reads successfully
+2. Current Codex config/auth: `~/.codex/config.toml` and `~/.codex/auth.json`
+3. Current ccswitch `codex` provider: `~/.cc-switch/cc-switch.db`
+4. `RELAY_IMAGEGEN_CONFIG`
+5. `photo/api_key.json` under the current project
+6. `.secrets/image_api.json` under the current project
+7. `.secrets/relay_imagegen.json` under the current project
 8. `%APPDATA%/relay-imagegen/config.json` on Windows
 9. `~/.config/relay-imagegen/config.json`
 10. `~/.relay-imagegen.json`
@@ -174,7 +175,7 @@ If `--config` is not provided, the script checks:
 
 ## Codex Config
 
-This is the first automatic config source.
+This is a common automatic config source. If this Skill has a valid `.secrets/config.json`, that dedicated image config is used first.
 
 The script reads:
 
@@ -279,7 +280,7 @@ python $skill generate --ccswitch-db C:/path/to/cc-switch.db --prompt-file promp
 
 ## JSON Config
 
-If you do not want to reuse the current Codex or ccswitch config, or your image relay differs from your Codex relay, create a private config.
+If you do not want to reuse the current Codex or ccswitch config, or your image relay differs from your Codex relay, create a private config to give image generation its own endpoint and key.
 
 Recommended user-level setup:
 
@@ -304,6 +305,8 @@ Path:
 ```text
 ~/.codex/skills/relay-imagegen/.secrets/config.json
 ```
+
+This file takes priority over Codex config in the default lookup order. If it is missing or cannot be read, it is skipped silently and the script continues to Codex, ccswitch, and other private configs.
 
 Manual config:
 
