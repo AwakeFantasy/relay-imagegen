@@ -41,6 +41,7 @@ CCSWITCH_DB = Path.home() / ".cc-switch" / "cc-switch.db"
 CODEX_HOME = Path(os.environ.get("CODEX_HOME", Path.home() / ".codex"))
 CODEX_CONFIG = CODEX_HOME / "config.toml"
 CODEX_AUTH = CODEX_HOME / "auth.json"
+SKILL_PRIVATE_CONFIG = SKILL_DIR / ".secrets" / "config.json"
 
 
 def die(message: str, code: int = 1) -> None:
@@ -48,7 +49,7 @@ def die(message: str, code: int = 1) -> None:
     raise SystemExit(code)
 
 
-def default_config_path() -> Path | None:
+def default_config_path(include_skill_private: bool = True) -> Path | None:
     env_path = os.environ.get("RELAY_IMAGEGEN_CONFIG")
     candidates = []
     if env_path:
@@ -59,7 +60,7 @@ def default_config_path() -> Path | None:
             Path.cwd() / "photo" / "api_key.json",
             Path.cwd() / ".secrets" / "image_api.json",
             Path.cwd() / ".secrets" / "relay_imagegen.json",
-            SKILL_DIR / ".secrets" / "config.json",
+            SKILL_PRIVATE_CONFIG if include_skill_private else None,
             Path(appdata) / "relay-imagegen" / "config.json" if appdata else None,
             Path.home() / ".config" / "relay-imagegen" / "config.json",
             Path.home() / ".relay-imagegen.json",
@@ -226,8 +227,8 @@ def load_ccswitch_config(db_path_arg: str | None = None, app_type: str = "codex"
     )
 
 
-def load_file_config(path_arg: str | None) -> tuple[dict[str, Any], str]:
-    path = Path(path_arg) if path_arg else default_config_path()
+def load_file_config(path_arg: str | None, include_skill_private: bool = True) -> tuple[dict[str, Any], str]:
+    path = Path(path_arg) if path_arg else default_config_path(include_skill_private=include_skill_private)
     if path is None:
         die("No config found. Pass --config, create a private config, or use ccswitch.")
     if not path.exists():
@@ -249,6 +250,16 @@ def load_file_config(path_arg: str | None) -> tuple[dict[str, Any], str]:
     return data, str(path)
 
 
+def load_optional_skill_private_config() -> tuple[dict[str, Any], str] | None:
+    if not SKILL_PRIVATE_CONFIG.exists():
+        return None
+    try:
+        with contextlib.redirect_stderr(io.StringIO()):
+            return load_file_config(str(SKILL_PRIVATE_CONFIG))
+    except SystemExit:
+        return None
+
+
 def load_config(
     path_arg: str | None,
     from_ccswitch: bool = False,
@@ -267,6 +278,9 @@ def load_config(
     use_ccswitch = not no_ccswitch and os.environ.get("RELAY_IMAGEGEN_NO_CCSWITCH") != "1"
     if from_ccswitch or os.environ.get("RELAY_IMAGEGEN_FROM_CCSWITCH") == "1":
         return load_ccswitch_config(ccswitch_db)
+    skill_private_config = load_optional_skill_private_config()
+    if skill_private_config:
+        return skill_private_config
     try:
         if use_codex:
             with contextlib.redirect_stderr(io.StringIO()):
@@ -279,7 +293,7 @@ def load_config(
                 return load_ccswitch_config(ccswitch_db)
     except SystemExit:
         pass
-    return load_file_config(None)
+    return load_file_config(None, include_skill_private=False)
 
 
 def bundled_cli_path() -> Path:

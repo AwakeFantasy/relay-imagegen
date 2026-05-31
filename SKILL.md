@@ -14,7 +14,7 @@ Use `scripts/relay_imagegen.py` directly. The defaults are tuned for low-thinkin
 - Non-secret run metadata next to every successful output.
 - Default size: `2560x1440`.
 - High quality.
-- Config lookup: `--config` first, then current Codex config/auth, then ccswitch, then private config files.
+- Config lookup: `--config` first, then this skill's private `.secrets/config.json` if valid, then current Codex config/auth, then ccswitch, then other private config files.
 - Auto output path: `generated/<name>-YYYYMMDD-HHMMSS-2k.png`.
 - Optional input downscaling with `--prepare-image` or `--max-input-edge`.
 
@@ -69,13 +69,13 @@ Use `scripts/relay_imagegen.py` for relay image generation or editing. It reads 
 Default config lookup:
 
 1. `--config <path>` if provided.
-2. Current Codex config/auth from `~/.codex/config.toml` and `~/.codex/auth.json`, unless `--no-codex` is used.
-3. Current ccswitch `codex` provider from `~/.cc-switch/cc-switch.db`, unless `--no-ccswitch` is used.
-4. `RELAY_IMAGEGEN_CONFIG` if set.
-5. `photo/api_key.json` under the current working directory.
-6. `.secrets/image_api.json` under the current working directory.
-7. `.secrets/relay_imagegen.json` under the current working directory.
-8. This skill's private `.secrets/config.json`.
+2. This skill's private `.secrets/config.json` if it exists and reads successfully. If it is missing or invalid, skip it silently.
+3. Current Codex config/auth from `~/.codex/config.toml` and `~/.codex/auth.json`, unless `--no-codex` is used.
+4. Current ccswitch `codex` provider from `~/.cc-switch/cc-switch.db`, unless `--no-ccswitch` is used.
+5. `RELAY_IMAGEGEN_CONFIG` if set.
+6. `photo/api_key.json` under the current working directory.
+7. `.secrets/image_api.json` under the current working directory.
+8. `.secrets/relay_imagegen.json` under the current working directory.
 9. `%APPDATA%/relay-imagegen/config.json` on Windows.
 10. `~/.config/relay-imagegen/config.json`.
 11. `~/.relay-imagegen.json`.
