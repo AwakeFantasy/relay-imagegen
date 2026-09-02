@@ -63,14 +63,14 @@ Use this Skill when:
 Relay Imagegen wraps Codex's bundled image generation CLI:
 
 ```text
-~/.codex/skills/.system/imagegen/scripts/image_gen.py
+scripts/image_client.py + scripts/relay_imagegen.py
 ```
 
 The wrapper:
 
 1. Reads relay settings from a dedicated image config, current Codex config, ccswitch, or another private JSON config file.
 2. Injects `OPENAI_API_KEY` and `OPENAI_BASE_URL` only into the child process.
-3. Calls the bundled imagegen CLI.
+3. Calls the OpenAI-compatible Images API directly.
 4. Verifies output dimensions when Pillow is available.
 5. Writes a non-secret sidecar metadata file with a prompt snapshot.
 
@@ -78,7 +78,7 @@ API keys are not printed, not passed as command-line arguments, and not written 
 
 ## Requirements
 
-- Codex with the bundled `imagegen` system Skill.
+- OpenAI-compatible relay with the Python SDK.
 - Python 3.10+.
 - An OpenAI-compatible image relay/proxy that supports your chosen image model.
 - Optional: ccswitch, as a fallback for current Codex provider discovery.

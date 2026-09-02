@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Run the bundled imagegen CLI through a relay config without persistent env vars."""
+"""Generate or edit images through an OpenAI-compatible relay."""
 
 from __future__ import annotations
 
@@ -12,12 +12,16 @@ import os
 from pathlib import Path
 import re
 import sqlite3
-import subprocess
 import sys
 import tempfile
 import time
 from typing import Any
 from urllib.parse import urlsplit, urlunsplit
+
+try:
+    from scripts.image_client import ImageClient
+except ModuleNotFoundError:
+    from image_client import ImageClient
 
 
 DEFAULT_SIZE = "2560x1440"
@@ -296,14 +300,6 @@ def load_config(
     return load_file_config(None, include_skill_private=False)
 
 
-def bundled_cli_path() -> Path:
-    codex_home = Path(os.environ.get("CODEX_HOME", Path.home() / ".codex"))
-    cli = codex_home / "skills" / ".system" / "imagegen" / "scripts" / "image_gen.py"
-    if not cli.exists():
-        die(f"Bundled imagegen CLI not found: {cli}")
-    return cli
-
-
 def parse_size(size: str) -> tuple[int, int] | None:
     if "x" not in size:
         return None
@@ -427,15 +423,6 @@ def images_for_metadata(images: list[dict[str, Any]]) -> list[dict[str, Any]]:
     return metadata_images
 
 
-def filter_process_output(text: str) -> str:
-    filtered = []
-    for line in text.splitlines():
-        if line.strip() == "OPENAI_API_KEY is set.":
-            continue
-        filtered.append(line)
-    return "\n".join(filtered)
-
-
 def prompt_snapshot(args: argparse.Namespace) -> str | None:
     if args.prompt is not None:
         return args.prompt
@@ -482,50 +469,33 @@ def write_sidecar(
     return sidecar
 
 
-def build_command(args: argparse.Namespace, cfg: dict[str, Any], images: list[dict[str, Any]]) -> list[str]:
-    cmd = [
-        sys.executable,
-        str(bundled_cli_path()),
-        args.mode,
-        "--model",
-        str(args.model or cfg.get("model", "gpt-image-2")),
-        "--size",
-        args.size,
-        "--quality",
-        args.quality,
-        "--out",
-        str(args.out),
-    ]
-    if args.prompt_file:
-        cmd.extend(["--prompt-file", args.prompt_file])
-    elif args.prompt:
-        cmd.extend(["--prompt", args.prompt])
-    else:
-        die("Use --prompt-file or --prompt.")
-
-    if args.output_format:
-        cmd.extend(["--output-format", args.output_format])
-    if args.force:
-        cmd.append("--force")
-    if args.mode == "edit":
-        if not images:
-            die("edit mode requires at least one --image.")
-        for image in images:
-            cmd.extend(["--image", str(image["used"])])
-    return cmd
+def write_output_images(images: list[bytes], out: Path, output_format: str | None, force: bool) -> None:
+    if not images:
+        die("Image API returned no images.")
+    if out.exists() and not force:
+        die(f"Output already exists: {out}. Use --force to overwrite.")
+    out.parent.mkdir(parents=True, exist_ok=True)
+    images[0] and out.write_bytes(images[0])
+    if len(images) > 1:
+        suffix = out.suffix or ".png"
+        for index, data in enumerate(images[1:], start=2):
+            extra = out.with_name(f"{out.stem}-{index}{suffix}")
+            if extra.exists() and not force:
+                die(f"Output already exists: {extra}. Use --force to overwrite.")
+            extra.write_bytes(data)
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(description="Relay wrapper for bundled image generation.")
+    parser = argparse.ArgumentParser(description="Relay image generation client.")
     parser.add_argument("mode", choices=["generate", "edit"])
     parser.add_argument("--config")
-    parser.add_argument("--from-codex", action="store_true", help="Require the current Codex config/auth provider.")
-    parser.add_argument("--no-codex", action="store_true", help="Skip default Codex config/auth lookup.")
-    parser.add_argument("--codex-config", help="Override the Codex config.toml path.")
-    parser.add_argument("--codex-auth", help="Override the Codex auth.json path.")
-    parser.add_argument("--from-ccswitch", action="store_true", help="Require the current Codex provider from ccswitch.")
-    parser.add_argument("--no-ccswitch", action="store_true", help="Skip default ccswitch lookup and use file config.")
-    parser.add_argument("--ccswitch-db", help="Override the ccswitch SQLite database path.")
+    parser.add_argument("--from-codex", action="store_true")
+    parser.add_argument("--no-codex", action="store_true")
+    parser.add_argument("--codex-config")
+    parser.add_argument("--codex-auth")
+    parser.add_argument("--from-ccswitch", action="store_true")
+    parser.add_argument("--no-ccswitch", action="store_true")
+    parser.add_argument("--ccswitch-db")
     parser.add_argument("--model")
     parser.add_argument("--prompt")
     parser.add_argument("--prompt-file")
@@ -539,75 +509,41 @@ def main() -> int:
     parser.add_argument("--timeout", type=int, default=DEFAULT_TIMEOUT_SECONDS)
     parser.add_argument("--prepare-image", action="store_true")
     parser.add_argument("--max-input-edge", type=int)
-    parser.add_argument("--keep-prepared", action="store_true", help="Keep prepared upload copies under generated/relay_prepared.")
+    parser.add_argument("--keep-prepared", action="store_true")
     parser.add_argument("--force", action="store_true")
     parser.add_argument("--dry-run", action="store_true")
     args = parser.parse_args()
 
-    cfg, config_path = load_config(
-        args.config,
-        args.from_ccswitch,
-        args.from_codex,
-        args.no_codex,
-        args.no_ccswitch,
-        args.ccswitch_db,
-        args.codex_config,
-        args.codex_auth,
-    )
+    cfg, config_path = load_config(args.config, args.from_ccswitch, args.from_codex, args.no_codex, args.no_ccswitch, args.ccswitch_db, args.codex_config, args.codex_auth)
     out = Path(args.out) if args.out else default_output_path(args)
     args.out = str(out)
-    out.parent.mkdir(parents=True, exist_ok=True)
-    needs_prepared_images = args.mode == "edit" and args.image and (args.prepare_image or args.max_input_edge)
-    temp_context = (
-        contextlib.nullcontext(None)
-        if not needs_prepared_images or args.keep_prepared
-        else tempfile.TemporaryDirectory(prefix="relay-imagegen-")
-    )
+    prompt = args.prompt if args.prompt is not None else (Path(args.prompt_file).read_text(encoding="utf-8") if args.prompt_file else None)
+    if not prompt:
+        die("Use --prompt-file or --prompt.")
+    needs_prepared = args.mode == "edit" and args.image and (args.prepare_image or args.max_input_edge)
+    temp_context = contextlib.nullcontext(None) if not needs_prepared or args.keep_prepared else tempfile.TemporaryDirectory(prefix="relay-imagegen-")
     with temp_context as temp_dir:
-        prep_dir = out.parent / "relay_prepared" if args.keep_prepared and needs_prepared_images else Path(temp_dir) if temp_dir else None
-        images = prepare_images(args, out, prep_dir, prepared_temporary=bool(needs_prepared_images and not args.keep_prepared))
-
-        env = os.environ.copy()
-        env["OPENAI_API_KEY"] = str(cfg["api_key"])
-        env["OPENAI_BASE_URL"] = str(cfg["base_url"])
-
+        prep_dir = out.parent / "relay_prepared" if args.keep_prepared and needs_prepared else Path(temp_dir) if temp_dir else None
+        images = prepare_images(args, out, prep_dir, prepared_temporary=bool(needs_prepared and not args.keep_prepared))
+        used_paths = [item["used"] for item in images] if images else []
+        client = ImageClient(str(cfg["api_key"]), str(cfg["base_url"]), timeout=args.timeout)
+        model = args.model or cfg.get("model", "gpt-image-2")
         print(f"MODE={args.mode}")
-        print(f"MODEL={args.model or cfg.get('model', 'gpt-image-2')}")
+        print(f"MODEL={model}")
         print(f"SIZE={args.size}")
         print(f"OUT={out}")
-        print(f"TIMEOUT={args.timeout}")
-        if cfg.get("codex_provider_name"):
-            print(f"CODEX_PROVIDER={cfg['codex_provider_name']}")
-        if cfg.get("ccswitch_provider_name"):
-            print(f"CCSWITCH_PROVIDER={cfg['ccswitch_provider_name']}")
-
-        cmd = build_command(args, cfg, images)
         if args.dry_run:
-            redacted = ["<python>", *cmd[1:]]
-            print("DRY_RUN=1")
-            print("COMMAND=" + " ".join(redacted))
+            print("DIRECT_SDK=1")
+            print(f"BASE_URL={str(cfg['base_url']).split('?')[0]}")
             return 0
-
         started = time.time()
-        try:
-            result = subprocess.run(
-                cmd,
-                env=env,
-                text=True,
-                capture_output=True,
-                timeout=args.timeout,
-            )
-        except subprocess.TimeoutExpired:
-            die(f"Image generation timed out after {args.timeout}s.", code=124)
-
-        stdout = filter_process_output(result.stdout or "")
-        stderr = filter_process_output(result.stderr or "")
-        if stdout:
-            print(stdout)
-        if stderr:
-            print(stderr, file=sys.stderr)
-        if result.returncode != 0:
-            return result.returncode
+        if args.mode == "generate":
+            generated = client.generate(model=model, prompt=prompt, size=args.size, quality=args.quality, output_format=args.output_format)
+        else:
+            if not used_paths:
+                die("edit mode requires at least one --image.")
+            generated = client.edit(model=model, prompt=prompt, size=args.size, quality=args.quality, image_paths=[str(path) for path in used_paths], output_format=args.output_format)
+        write_output_images(generated, out, args.output_format, args.force)
         dimensions = verify_dimensions(out, args.size)
         write_sidecar(out, args, cfg, config_path, images, dimensions, time.time() - started)
         return 0

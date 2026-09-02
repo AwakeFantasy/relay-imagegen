@@ -60,17 +60,17 @@ Relay Imagegen 是一个 Codex Skill，用于通过兼容 OpenAI 接口的中转
 
 ## 工作方式
 
-Relay Imagegen 当前是 Codex 自带图片生成脚本的包装层：
+Relay Imagegen 当前是一个自包含的 OpenAI-compatible 图片客户端包装层：
 
 ```text
-~/.codex/skills/.system/imagegen/scripts/image_gen.py
+scripts/image_client.py + scripts/relay_imagegen.py
 ```
 
 它负责：
 
 1. 从生图专用私有配置、Codex 当前配置、ccswitch 或其他私有配置文件读取中转站信息。
 2. 只在当前子进程运行期间注入 `OPENAI_API_KEY` 和 `OPENAI_BASE_URL`。
-3. 调用 Codex 自带的 imagegen 脚本生成或编辑图片。
+3. 直接使用 OpenAI Python SDK 请求图片生成或编辑接口。
 4. 验证输出图片尺寸。
 5. 写入不包含密钥的 sidecar 记录文件，并保存当次提示词快照。
 
@@ -78,7 +78,7 @@ Relay Imagegen 当前是 Codex 自带图片生成脚本的包装层：
 
 ## 环境要求
 
-- 已安装 Codex，并且带有系统 `imagegen` Skill
+- Python 环境已安装 `openai` 和 `Pillow`
 - Python 3.10 或更高版本
 - 一个支持图片生成模型的 OpenAI 兼容中转站
 - 可选：ccswitch，用于在 Codex 配置不可用时自动读取当前 Codex provider

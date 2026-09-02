@@ -64,7 +64,7 @@ Prefer `--prompt-file` over `--prompt` for saved/reusable prompts, long prompts,
 
 ## Config
 
-Use `scripts/relay_imagegen.py` for relay image generation or editing. It reads a private JSON config only at runtime, injects `OPENAI_API_KEY` and `OPENAI_BASE_URL` only into the child process that calls the bundled imagegen CLI, then verifies output dimensions when possible.
+Use `scripts/relay_imagegen.py` for relay image generation or editing. It reads a private JSON config only at runtime, creates a direct OpenAI-compatible Images API client and handles Base64 or URL image responses, then verifies output dimensions when possible.
 
 Default config lookup:
 
