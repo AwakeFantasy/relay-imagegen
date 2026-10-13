@@ -29,7 +29,9 @@ DEFAULT_QUALITY = "high"
 DEFAULT_OUT_DIR = Path("generated")
 DEFAULT_TIMEOUT_SECONDS = 600
 DEFAULT_PREPARED_EDGE = 2048
+DEFAULT_MODEL = "gpt-image-2.5-flare"
 SKILL_DIR = Path(__file__).resolve().parents[1]
+ROOT_CONFIG = SKILL_DIR / "config.json"
 
 API_KEY_FIELDS = ("api_key", "apiKey", "key", "token", "openai_api_key", "OPENAI_API_KEY")
 BASE_URL_FIELDS = (
@@ -56,11 +58,10 @@ def die(message: str, code: int = 1) -> None:
 def default_config_path(include_skill_private: bool = True) -> Path | None:
     env_path = os.environ.get("RELAY_IMAGEGEN_CONFIG")
     candidates = []
-    if env_path:
-        candidates.append(Path(env_path))
     appdata = os.environ.get("APPDATA")
     candidates.extend(
         [
+            ROOT_CONFIG,
             Path.cwd() / "photo" / "api_key.json",
             Path.cwd() / ".secrets" / "image_api.json",
             Path.cwd() / ".secrets" / "relay_imagegen.json",
@@ -68,6 +69,7 @@ def default_config_path(include_skill_private: bool = True) -> Path | None:
             Path(appdata) / "relay-imagegen" / "config.json" if appdata else None,
             Path.home() / ".config" / "relay-imagegen" / "config.json",
             Path.home() / ".relay-imagegen.json",
+            Path(env_path) if env_path else None,
         ]
     )
     for path in candidates:
@@ -81,6 +83,41 @@ def first_present(data: dict[str, Any], names: tuple[str, ...]) -> Any:
         if data.get(name):
             return data[name]
     return None
+
+
+def source_name(source: dict[str, Any], index: int) -> str:
+    return str(source.get("name") or f"relay-{index + 1}").strip() or f"relay-{index + 1}"
+
+
+def normalize_sources(data: dict[str, Any]) -> list[dict[str, Any]]:
+    """Normalize legacy single-source and new ordered-source configs."""
+    raw_sources = data.get("sources")
+    if raw_sources is None:
+        raw_sources = [data]
+    if not isinstance(raw_sources, list) or not raw_sources:
+        die("Config 'sources' must be a non-empty array.")
+
+    sources = []
+    for index, raw in enumerate(raw_sources):
+        if not isinstance(raw, dict):
+            die(f"Config source #{index + 1} must be an object.")
+        api_key = first_present(raw, API_KEY_FIELDS) or first_present(data, API_KEY_FIELDS)
+        base_url = first_present(raw, BASE_URL_FIELDS) or first_present(data, BASE_URL_FIELDS)
+        if not api_key:
+            die(f"Config source #{index + 1} is missing an API key.")
+        if not base_url:
+            die(f"Config source #{index + 1} is missing a base URL.")
+        source = {
+            "name": source_name(raw, index),
+            "api_key": str(api_key),
+            "base_url": normalize_openai_base_url(str(base_url)),
+            "enabled": raw.get("enabled", True) is not False,
+        }
+        model = first_present(raw, ("model", "image_model", "imageModel")) or data.get("model")
+        if model:
+            source["model"] = str(model)
+        sources.append(source)
+    return sources
 
 
 def normalize_openai_base_url(url: str) -> str:
@@ -173,7 +210,7 @@ def load_codex_config(
         {
             "api_key": api_key,
             "base_url": normalize_openai_base_url(str(base_url)),
-            "model": image_model or "gpt-image-2",
+            "model": image_model or "gpt-image-2.5-flare",
             "codex_provider_name": provider_name,
         },
         f"codex:{config_path}:{auth_path}:{provider_name}",
@@ -223,7 +260,7 @@ def load_ccswitch_config(db_path_arg: str | None = None, app_type: str = "codex"
         {
             "api_key": api_key,
             "base_url": base_url,
-            "model": settings.get("model") or "gpt-image-2",
+            "model": settings.get("model") or "gpt-image-2.5-flare",
             "ccswitch_provider_id": provider["id"],
             "ccswitch_provider_name": provider["name"],
         },
@@ -242,15 +279,11 @@ def load_file_config(path_arg: str | None, include_skill_private: bool = True) -
     except Exception as exc:
         die(f"Could not parse config JSON: {exc}")
 
-    api_key = first_present(data, API_KEY_FIELDS)
-    base_url = first_present(data, BASE_URL_FIELDS)
-    if not api_key:
-        die(f"Config JSON is missing an API key field. Supported: {', '.join(API_KEY_FIELDS)}.")
-    if not base_url:
-        die(f"Config JSON is missing a base URL field. Supported: {', '.join(BASE_URL_FIELDS)}.")
-    data["api_key"] = api_key
-    data["base_url"] = base_url
-    data.setdefault("model", "gpt-image-2")
+    sources = normalize_sources(data)
+    data["sources"] = sources
+    data["api_key"] = sources[0]["api_key"]
+    data["base_url"] = sources[0]["base_url"]
+    data.setdefault("model", DEFAULT_MODEL)
     return data, str(path)
 
 
@@ -282,6 +315,8 @@ def load_config(
     use_ccswitch = not no_ccswitch and os.environ.get("RELAY_IMAGEGEN_NO_CCSWITCH") != "1"
     if from_ccswitch or os.environ.get("RELAY_IMAGEGEN_FROM_CCSWITCH") == "1":
         return load_ccswitch_config(ccswitch_db)
+    if ROOT_CONFIG.exists():
+        return load_file_config(str(ROOT_CONFIG))
     skill_private_config = load_optional_skill_private_config()
     if skill_private_config:
         return skill_private_config
@@ -364,7 +399,8 @@ def default_output_path(args: argparse.Namespace) -> Path:
         base = f"relay-{args.mode}"
     timestamp = datetime.now().strftime("%Y%m%d-%H%M%S")
     size_label = "2k" if args.size == "2560x1440" else "4k" if args.size == "3840x2160" else args.size
-    return out_dir / f"{sanitize_stem(base)}-{timestamp}-{size_label}.png"
+    extension = {"png": ".png", "jpeg": ".jpg", "webp": ".webp"}[args.output_format or "png"]
+    return out_dir / f"{sanitize_stem(base)}-{timestamp}-{size_label}{extension}"
 
 
 def prepared_image_path(prep_dir: Path, out: Path, image: Path, index: int) -> Path:
@@ -442,11 +478,12 @@ def write_sidecar(
     images: list[dict[str, Any]],
     dimensions: dict[str, Any],
     elapsed: float,
+    route: dict[str, Any] | None = None,
 ) -> Path:
     sidecar = out.with_suffix(".meta.json")
     meta = {
         "mode": args.mode,
-        "model": args.model or cfg.get("model", "gpt-image-2"),
+        "model": args.model or cfg.get("model", DEFAULT_MODEL),
         "size": args.size,
         "quality": args.quality,
         "output_format": args.output_format or "png",
@@ -461,12 +498,107 @@ def write_sidecar(
         "codex_provider": cfg.get("codex_provider_name"),
         "ccswitch_provider": cfg.get("ccswitch_provider_name"),
         "base_url": str(cfg.get("base_url", "")).split("?")[0],
+        "route": route or {},
         "elapsed_seconds": round(elapsed, 2),
         "created_at": datetime.now().isoformat(timespec="seconds"),
     }
     sidecar.write_text(json.dumps(meta, ensure_ascii=False, indent=2), encoding="utf-8")
     print(f"META={sidecar}")
     return sidecar
+
+
+def is_retryable_relay_error(exc: BaseException) -> bool:
+    """Only fail over on transport, rate-limit, or server-side failures."""
+    if isinstance(exc, (FileNotFoundError, PermissionError, IsADirectoryError)):
+        return False
+    if isinstance(exc, (TimeoutError, ConnectionError, OSError)):
+        return True
+    status = getattr(exc, "status_code", None) or getattr(exc, "status", None) or getattr(exc, "code", None)
+    if isinstance(status, int):
+        return status == 429 or 500 <= status < 600
+    message = str(exc).lower()
+    return any(token in message for token in ("timed out", "timeout", "connection", "connect", "dns"))
+
+
+def safe_error_summary(exc: BaseException, source: dict[str, Any]) -> str:
+    message = str(exc)[:300]
+    api_key = str(source.get("api_key") or "")
+    if api_key:
+        message = message.replace(api_key, "<redacted>")
+    return message
+
+
+def redact_error_text(text: str, sources: list[dict[str, Any]]) -> str:
+    for source in sources:
+        api_key = str(source.get("api_key") or "")
+        if api_key:
+            text = text.replace(api_key, "<redacted>")
+    return text[:500]
+
+
+def request_with_failover(
+    *,
+    sources: list[dict[str, Any]],
+    preferred_source: str | None,
+    explicit_model: str | None,
+    mode: str,
+    prompt: str,
+    size: str,
+    quality: str,
+    image_paths: list[str],
+    output_format: str | None,
+    timeout: int,
+    stream: bool = False,
+    partial_images: int = 1,
+    on_partial: Any = None,
+) -> tuple[list[bytes], dict[str, Any], dict[str, Any]]:
+    enabled = [source for source in sources if source.get("enabled", True)]
+    if not enabled:
+        die("No enabled relay sources are configured.")
+    if preferred_source:
+        selected_index = next((i for i, source in enumerate(enabled) if source_name(source, i) == preferred_source), None)
+        if selected_index is None:
+            die(f"Configured relay source not found or disabled: {preferred_source}")
+        enabled = enabled[selected_index:] + enabled[:selected_index]
+    if stream:
+        enabled = enabled[:1]
+    attempts = []
+    for index, source in enumerate(enabled):
+        name = source_name(source, index)
+        model = explicit_model or source.get("model") or DEFAULT_MODEL
+        started = time.time()
+        attempt = {"source": name, "model": model, "base_url": str(source["base_url"]).split("?")[0]}
+        print(f"ATTEMPT_SOURCE={name} ATTEMPT_MODEL={model}", flush=True)
+        try:
+            client = ImageClient(str(source["api_key"]), str(source["base_url"]), timeout=timeout)
+            if mode == "generate":
+                if stream:
+                    generated = client.generate_stream(
+                        model=model, prompt=prompt, size=size, quality=quality,
+                        output_format=output_format, partial_images=partial_images, on_partial=on_partial,
+                    )
+                else:
+                    generated = client.generate(model=model, prompt=prompt, size=size, quality=quality, output_format=output_format)
+            else:
+                if stream:
+                    generated = client.edit_stream(
+                        model=model, prompt=prompt, size=size, quality=quality, image_paths=image_paths,
+                        output_format=output_format, partial_images=partial_images, on_partial=on_partial,
+                    )
+                else:
+                    generated = client.edit(model=model, prompt=prompt, size=size, quality=quality, image_paths=image_paths, output_format=output_format)
+            attempt.update({"status": "success", "elapsed_seconds": round(time.time() - started, 2)})
+            attempts.append(attempt)
+            selected = dict(source)
+            selected["model"] = model
+            return generated, selected, {"selected_source": name, "attempts": attempts}
+        except Exception as exc:
+            retryable = is_retryable_relay_error(exc)
+            attempt.update({"status": "failed", "retryable": retryable, "error": safe_error_summary(exc, source), "elapsed_seconds": round(time.time() - started, 2)})
+            attempts.append(attempt)
+            if not retryable or index == len(enabled) - 1:
+                raise
+    raise RuntimeError("No relay source produced an image.")
 
 
 def write_output_images(images: list[bytes], out: Path, output_format: str | None, force: bool) -> None:
@@ -487,7 +619,8 @@ def write_output_images(images: list[bytes], out: Path, output_format: str | Non
 
 def main() -> int:
     parser = argparse.ArgumentParser(description="Relay image generation client.")
-    parser.add_argument("mode", choices=["generate", "edit"])
+    parser.add_argument("mode", nargs="?", choices=["generate", "edit"])
+    parser.add_argument("--list-sources", action="store_true", help="List configured relay names and models without showing credentials or URLs.")
     parser.add_argument("--config")
     parser.add_argument("--from-codex", action="store_true")
     parser.add_argument("--no-codex", action="store_true")
@@ -497,12 +630,15 @@ def main() -> int:
     parser.add_argument("--no-ccswitch", action="store_true")
     parser.add_argument("--ccswitch-db")
     parser.add_argument("--model")
+    parser.add_argument("--source", help="Prefer a configured relay source by name.")
     parser.add_argument("--prompt")
     parser.add_argument("--prompt-file")
     parser.add_argument("--image", action="append")
     parser.add_argument("--size", default=DEFAULT_SIZE)
     parser.add_argument("--quality", default=DEFAULT_QUALITY)
-    parser.add_argument("--output-format")
+    parser.add_argument("--output-format", choices=["png", "jpeg", "webp"])
+    parser.add_argument("--stream", action="store_true", help="Save image-generation partial previews as local files.")
+    parser.add_argument("--partial-images", type=int, choices=range(0, 4), default=1, help="Number of partial previews when --stream is enabled (0-3).")
     parser.add_argument("--out")
     parser.add_argument("--output-dir")
     parser.add_argument("--name")
@@ -515,6 +651,15 @@ def main() -> int:
     args = parser.parse_args()
 
     cfg, config_path = load_config(args.config, args.from_ccswitch, args.from_codex, args.no_codex, args.no_ccswitch, args.ccswitch_db, args.codex_config, args.codex_auth)
+    sources = normalize_sources(cfg)
+    if args.list_sources:
+        for index, source in enumerate(sources):
+            model_name = source.get("model") or cfg.get("model") or DEFAULT_MODEL
+            enabled = "enabled" if source.get("enabled", True) else "disabled"
+            print(f"SOURCE={source_name(source, index)} MODEL={model_name} STATUS={enabled}")
+        return 0
+    if args.mode is None:
+        parser.error("mode is required unless --list-sources is used")
     out = Path(args.out) if args.out else default_output_path(args)
     args.out = str(out)
     prompt = args.prompt if args.prompt is not None else (Path(args.prompt_file).read_text(encoding="utf-8") if args.prompt_file else None)
@@ -526,26 +671,79 @@ def main() -> int:
         prep_dir = out.parent / "relay_prepared" if args.keep_prepared and needs_prepared else Path(temp_dir) if temp_dir else None
         images = prepare_images(args, out, prep_dir, prepared_temporary=bool(needs_prepared and not args.keep_prepared))
         used_paths = [item["used"] for item in images] if images else []
-        client = ImageClient(str(cfg["api_key"]), str(cfg["base_url"]), timeout=args.timeout)
-        model = args.model or cfg.get("model", "gpt-image-2")
+        source_order = [source for source in sources if source.get("enabled", True)]
+        if args.source:
+            source_index = next((i for i, source in enumerate(source_order) if source_name(source, i) == args.source), None)
+            if source_index is None:
+                die(f"Configured relay source not found or disabled: {args.source}")
+            source_order = source_order[source_index:] + source_order[:source_index]
+        if not source_order:
+            die("No enabled relay sources are configured.")
+        model = args.model or source_order[0].get("model") or DEFAULT_MODEL
+        if args.stream:
+            partial_paths = [out.with_name(f"{out.stem}.partial-{i + 1}{out.suffix or '.png'}") for i in range(args.partial_images)]
+            conflicts = [path for path in partial_paths if path.exists() and not args.force]
+            if conflicts:
+                die(f"Partial preview already exists: {conflicts[0]}. Use --force to overwrite.")
+        else:
+            partial_paths = []
+        partial_files_written: list[str] = []
         print(f"MODE={args.mode}")
-        print(f"MODEL={model}")
+        print(f"PLANNED_MODEL={model}")
         print(f"SIZE={args.size}")
         print(f"OUT={out}")
         if args.dry_run:
             print("DIRECT_SDK=1")
-            print(f"BASE_URL={str(cfg['base_url']).split('?')[0]}")
+            print(f"SOURCES={len([source for source in sources if source.get('enabled', True)])}")
+            print(f"STREAM={int(args.stream)}")
+            if args.source:
+                print(f"PREFERRED_SOURCE={args.source}")
+            for index, source in enumerate(sources):
+                if source.get("enabled", True):
+                    source_model = args.model or source.get("model") or cfg.get("model") or DEFAULT_MODEL
+                    print(f"SOURCE_{index + 1}={source_name(source, index)} MODEL={source_model}")
             return 0
         started = time.time()
-        if args.mode == "generate":
-            generated = client.generate(model=model, prompt=prompt, size=args.size, quality=args.quality, output_format=args.output_format)
-        else:
-            if not used_paths:
-                die("edit mode requires at least one --image.")
-            generated = client.edit(model=model, prompt=prompt, size=args.size, quality=args.quality, image_paths=[str(path) for path in used_paths], output_format=args.output_format)
+        if args.mode == "edit" and not used_paths:
+            die("edit mode requires at least one --image.")
+        try:
+            def save_partial(index: int, data: bytes) -> None:
+                if index < len(partial_paths):
+                    path = partial_paths[index]
+                    path.parent.mkdir(parents=True, exist_ok=True)
+                    path.write_bytes(data)
+                    partial_files_written.append(str(path))
+                    print(f"PARTIAL={path}", flush=True)
+
+            generated, selected_source, route = request_with_failover(
+                sources=sources,
+                preferred_source=args.source,
+                explicit_model=args.model,
+                mode=args.mode,
+                prompt=prompt,
+                size=args.size,
+                quality=args.quality,
+                image_paths=[str(path) for path in used_paths],
+                output_format=args.output_format,
+                timeout=args.timeout,
+                stream=args.stream,
+                partial_images=args.partial_images,
+                on_partial=save_partial,
+            )
+        except Exception as exc:
+            if args.stream:
+                die(f"Image stream failed; the relay may have accepted the request, and no retry was attempted: {redact_error_text(str(exc), sources)}")
+            die(f"All configured relay sources failed: {redact_error_text(str(exc), sources)}")
+        cfg = dict(cfg)
+        cfg.update(selected_source)
+        route["stream"] = bool(args.stream)
+        route["partial_images"] = args.partial_images if args.stream else 0
+        route["partial_files"] = partial_files_written
+        print(f"SOURCE={route['selected_source']}")
+        print(f"MODEL={selected_source['model']}")
         write_output_images(generated, out, args.output_format, args.force)
         dimensions = verify_dimensions(out, args.size)
-        write_sidecar(out, args, cfg, config_path, images, dimensions, time.time() - started)
+        write_sidecar(out, args, cfg, config_path, images, dimensions, time.time() - started, route)
         return 0
 
 

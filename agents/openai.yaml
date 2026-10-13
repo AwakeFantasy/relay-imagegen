@@ -1,4 +1,4 @@
 interface:
   display_name: "Relay Imagegen"
   short_description: "Relay image generation with saved prompts"
-  default_prompt: "Use the relay image generation workflow to create or edit an image through current Codex config, ccswitch, or private relay config, save the prompt and non-secret run metadata, and avoid persistent API key environment variables."
+  default_prompt: "Use the Skill-root relay config to create or edit images. Choose a configured source for the task, honor explicit model/source requests, keep credentials private, and report local output paths."

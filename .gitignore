@@ -1,4 +1,5 @@
 .secrets/
+/config.json
 *.meta.json
 relay_prepared/
 generated/

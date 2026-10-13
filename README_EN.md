@@ -32,15 +32,14 @@ Relay Imagegen is a Codex Skill for generating and editing images through an Ope
 
 It is designed for relay-first image workflows that are easy to reuse and trace:
 
-- Dedicated image-generation relay endpoint and key configuration
-- Current Codex config/auth discovery when no dedicated image config is present
-- Automatic ccswitch current Codex provider discovery
-- Private JSON config fallback for users without ccswitch
+- Support for `gpt-image-2.5-flare`, `gpt-image-2.5-sunburst`, and `gpt-image-2`
+- Dedicated local configuration for one or more relay URLs, API keys, and models
+- Ordered failover across enabled relays for transport errors, HTTP 429, and 5xx responses
 - Saved and reusable prompts via `prompts/*.txt`
 - Non-secret `.meta.json` sidecar for each successful run
 - Prompt snapshots saved into sidecar metadata
 - Default size: `2560x1440`
-- Default model: `gpt-image-2`
+- Default model: `gpt-image-2.5-flare`
 - Default quality: `high`
 - Default output directory: `generated/`
 - Optional reference image downscaling before upload
@@ -53,35 +52,25 @@ Use this Skill when:
 - You want to save prompts as reusable files.
 - You want each run to preserve the prompt snapshot, model, size, inputs, output path, and elapsed time.
 - You do not want a persistent system-level `OPENAI_API_KEY`.
-- Codex already works through a relay and you want to reuse that config.
-- You already use ccswitch for Codex and want to reuse its current provider when needed.
 - You edit images with local reference images.
 - You want high-resolution defaults such as `2560x1440`.
 
 ## How It Works
 
-Relay Imagegen wraps Codex's bundled image generation CLI:
+Codex invokes the local Python image client. It:
 
-```text
-scripts/image_client.py + scripts/relay_imagegen.py
-```
+1. Reads one or more relay settings from the Skill-root local config.
+2. Calls the OpenAI-compatible Images API through the Python SDK.
+3. Fails over in order only for transport errors, HTTP 429, or 5xx responses.
+4. Verifies output dimensions and writes non-secret run metadata.
 
-The wrapper:
-
-1. Reads relay settings from a dedicated image config, current Codex config, ccswitch, or another private JSON config file.
-2. Injects `OPENAI_API_KEY` and `OPENAI_BASE_URL` only into the child process.
-3. Calls the OpenAI-compatible Images API directly.
-4. Verifies output dimensions when Pillow is available.
-5. Writes a non-secret sidecar metadata file with a prompt snapshot.
-
-API keys are not printed, not passed as command-line arguments, and not written to sidecar files.
+API keys are not printed, passed as command-line arguments, or written to run metadata.
 
 ## Requirements
 
 - OpenAI-compatible relay with the Python SDK.
 - Python 3.10+.
 - An OpenAI-compatible image relay/proxy that supports your chosen image model.
-- Optional: ccswitch, as a fallback for current Codex provider discovery.
 - Optional: Pillow, for reference image preparation and output dimension checks.
 
 ## Installation
@@ -98,28 +87,15 @@ On Windows, the target directory is usually:
 C:\Users\<you>\.codex\skills\relay-imagegen
 ```
 
-After installation, Codex can use the Skill when you mention relay image generation, saved prompts, run metadata, ccswitch, `api_key.json`, or `$relay-imagegen`.
+After installation, Codex can use the Skill when you mention relay image generation, saved prompts, run metadata, or `$relay-imagegen`.
 
 ## Quick Start
 
-If Codex already works through your relay, no extra key file is usually needed.
-
-Check configuration:
+On first use, double-click `configure.pyw` or run the installed Skill setup script below to enter the relay URL, API key, and model. Codex calls the Python CLI directly afterward; the GUI is not opened for each image.
 
 ```powershell
 $setup = "$HOME/.codex/skills/relay-imagegen/scripts/setup.py"
-python $setup --check
-```
-
-Expected output:
-
-```text
-CODEX_CONFIG=C:\Users\you\.codex\config.toml
-CODEX_AUTH=C:\Users\you\.codex\auth.json
-CODEX_PROVIDER=your-provider
-API_KEY=sk-...xxxx
-BASE_URL=https://relay.example/v1
-MODEL=gpt-image-2
+python $setup gui
 ```
 
 Create a prompt file:
@@ -150,187 +126,28 @@ generated/test-YYYYMMDD-HHMMSS-2k.meta.json
 
 ## Configuration
 
-Relay Imagegen supports three configuration sources:
+Open `configure.pyw` from the Skill root, or run the setup command above. The GUI can add, remove, enable, disable, and reorder relay sources; later runs use them automatically without opening the GUI again.
 
-1. Private JSON config files for a dedicated image-generation endpoint and key.
-2. Current Codex config/auth.
-3. The current ccswitch Codex provider.
+The local config is stored at the Skill root and is ignored by Git. Manual editing is normally unnecessary.
 
-### Default Lookup Order
-
-If `--config` is not provided, the script checks:
-
-1. `.secrets/config.json` under this Skill, if it exists and reads successfully
-2. Current Codex config/auth: `~/.codex/config.toml` and `~/.codex/auth.json`
-3. Current ccswitch `codex` provider: `~/.cc-switch/cc-switch.db`
-4. `RELAY_IMAGEGEN_CONFIG`
-5. `photo/api_key.json` under the current project
-6. `.secrets/image_api.json` under the current project
-7. `.secrets/relay_imagegen.json` under the current project
-8. `%APPDATA%/relay-imagegen/config.json` on Windows
-9. `~/.config/relay-imagegen/config.json`
-10. `~/.relay-imagegen.json`
-
-`--config <path>` overrides all automatic lookup and does not try Codex or ccswitch.
-
-## Codex Config
-
-This is a common automatic config source. If this Skill has a valid `.secrets/config.json`, that dedicated image config is used first.
-
-The script reads:
-
-```text
-~/.codex/config.toml
-~/.codex/auth.json
-```
-
-Sources:
-
-```text
-base_url -> current model_provider in config.toml
-api_key  -> OPENAI_API_KEY in auth.json
-model    -> image_model if present, otherwise gpt-image-2
-```
-
-Check Codex config explicitly:
-
-```powershell
-python ~/.codex/skills/relay-imagegen/scripts/setup.py --check-codex
-```
-
-Require Codex config and fail instead of falling back:
-
-```powershell
-python $skill generate --from-codex --prompt-file prompts/test.txt --name test --force
-```
-
-Skip Codex config:
-
-```powershell
-python $skill generate --no-codex --prompt-file prompts/test.txt --name test --force
-```
-
-Override Codex config paths:
-
-```powershell
-python $skill generate --codex-config C:/path/to/config.toml --codex-auth C:/path/to/auth.json --prompt-file prompts/test.txt --name test --force
-```
-
-## ccswitch
-
-By default, Relay Imagegen reads:
-
-```text
-~/.cc-switch/cc-switch.db
-```
-
-It looks for the current Codex provider:
-
-```text
-providers where app_type = "codex" and is_current = 1
-```
-
-Then it reads:
-
-```text
-key       -> providers.settings_config.auth.OPENAI_API_KEY
-base_url  -> providers.settings_config.config base_url first
-fallback  -> first provider_endpoints url if config has no base_url
-model     -> gpt-image-2 by default
-```
-
-Note: ccswitch may store multiple endpoint URLs. The last endpoint is not necessarily the active or healthy one. Relay Imagegen no longer picks the last endpoint blindly, which avoids accidentally selecting a failed node.
-
-If the endpoint is a root URL such as:
-
-```text
-https://relay.example
-```
-
-it is normalized to:
-
-```text
-https://relay.example/v1
-```
-
-Check ccswitch explicitly:
-
-```powershell
-python ~/.codex/skills/relay-imagegen/scripts/setup.py --check-ccswitch
-```
-
-Require ccswitch and fail instead of falling back:
-
-```powershell
-python $skill generate --from-ccswitch --prompt-file prompts/test.txt --name test --force
-```
-
-Skip ccswitch:
-
-```powershell
-python $skill generate --no-ccswitch --prompt-file prompts/test.txt --name test --force
-```
-
-Use a different ccswitch database:
-
-```powershell
-python $setup --check-ccswitch --ccswitch-db C:/path/to/cc-switch.db
-python $skill generate --ccswitch-db C:/path/to/cc-switch.db --prompt-file prompts/test.txt --name test --force
-```
-
-## JSON Config
-
-If you do not want to reuse the current Codex or ccswitch config, or your image relay differs from your Codex relay, create a private config to give image generation its own endpoint and key.
-
-Recommended user-level setup:
-
-```powershell
-python ~/.codex/skills/relay-imagegen/scripts/setup.py config --scope user
-```
-
-Windows path:
-
-```text
-%APPDATA%\relay-imagegen\config.json
-```
-
-Skill-local setup:
-
-```powershell
-python ~/.codex/skills/relay-imagegen/scripts/setup.py config --scope skill
-```
-
-Path:
-
-```text
-~/.codex/skills/relay-imagegen/.secrets/config.json
-```
-
-This file takes priority over Codex config in the default lookup order. If it is missing or cannot be read, it is skipped silently and the script continues to Codex, ccswitch, and other private configs.
-
-Manual config:
+The older single-source config remains compatible. The GUI writes a multi-source config roughly like this:
 
 ```json
 {
-  "api_key": "sk-...",
-  "base_url": "https://relay.example/v1",
-  "model": "gpt-image-2"
+  "sources": [
+    {"name": "primary", "base_url": "https://relay-a.example/v1", "api_key": "...", "model": "gpt-image-2.5-flare"},
+    {"name": "backup", "base_url": "https://relay-b.example/v1", "api_key": "...", "model": "gpt-image-2.5-sunburst"}
+  ]
 }
 ```
 
-Accepted API key aliases:
+Failover is conservative: ordinary 4xx request errors stop immediately. A timeout can happen after a relay has accepted a request, so switching sources may create a duplicate request or charge. Successful sidecars record the selected source and non-secret failure summaries.
 
-```text
-api_key, apiKey, key, token, openai_api_key, OPENAI_API_KEY
-```
+The local agent can run `python $skill --list-sources` to see configured source names and models, then choose one for the task with `--source <name>`. Flare suits fast everyday generation; prefer Sunburst when edit precision matters. Honor an explicit user model or source request.
 
-Accepted base URL aliases:
+Image streaming is optional. Add `--stream` to save partial previews beside the final image as `*.partial-N.<format>`; the final image keeps the requested output path. Set the preview count with `--partial-images 0..3` (default `1`). The relay must forward image SSE events. If a stream is interrupted, the server may already have completed the request, so the client will not automatically retry another source.
 
-```text
-base_url, baseUrl, baseURL, api_base, endpoint, openai_base_url, OPENAI_BASE_URL
-```
-
-Never commit real config files. `.secrets/` is ignored by this repository.
+Never commit real config files.
 
 ## Generate Images
 
@@ -345,7 +162,7 @@ python $skill generate `
 Default values:
 
 ```text
-model   = gpt-image-2
+model   = gpt-image-2.5-flare
 size    = 2560x1440
 quality = high
 output  = generated/
@@ -456,10 +273,8 @@ The sidecar includes non-secret metadata:
 - prompt snapshot
 - input reference paths
 - prepared image dimensions; temporary prepared image paths are not kept by default
+- selected relay, attempt order, and non-secret failure summaries
 - elapsed seconds
-- config source
-- ccswitch provider name when used
-- base URL without query string
 
 It does not include API keys.
 
@@ -471,6 +286,11 @@ It does not include API keys.
 | `--prompt-file` | Read prompt from file | None |
 | `--prompt` | Inline prompt | None |
 | `--image` | Reference image for edit mode, repeatable | None |
+| `--model` | Override the configured model | Model selected in config |
+| `--source` | Prefer a configured source by name | First enabled source |
+| `--list-sources` | List source names, models, and status without keys or URLs | Off |
+| `--stream` | Save partial image previews locally | Off |
+| `--partial-images` | Number of partial previews in streaming mode (0-3) | `1` |
 | `--name` | Filename stem for auto output | Derived from mode or prompt file |
 | `--out` | Exact output path | Auto-generated |
 | `--output-dir` | Auto output directory | `generated` |
@@ -481,69 +301,26 @@ It does not include API keys.
 | `--max-input-edge` | Reference max edge, also enables preparation | `2048` |
 | `--keep-prepared` | Keep prepared upload copies under `generated/relay_prepared/` | Off |
 | `--dry-run` | Print non-secret command shape only | Off |
-| `--force` | Allow overwrite behavior in bundled CLI | Off |
-| `--config` | Explicit JSON config path | Auto lookup |
-| `--from-codex` | Require current Codex config, no fallback | Off |
-| `--no-codex` | Skip Codex config lookup | Off |
-| `--codex-config` | Codex `config.toml` path | `~/.codex/config.toml` |
-| `--codex-auth` | Codex `auth.json` path | `~/.codex/auth.json` |
-| `--from-ccswitch` | Require ccswitch, no fallback | Off |
-| `--no-ccswitch` | Skip ccswitch lookup | Off |
-| `--ccswitch-db` | ccswitch database path | `~/.cc-switch/cc-switch.db` |
+| `--force` | Allow overwriting the output file | Off |
 
 ## Security Notes
 
 - Do not pass API keys as command-line arguments.
 - Do not commit real config files.
 - You do not need to persist `OPENAI_API_KEY` in user or system environment variables.
-- Codex mode reads current `config.toml` and `auth.json` and does not copy the key into this Skill.
-- ccswitch mode reads the current provider and does not copy the key into this Skill.
-- JSON config mode reads keys only at runtime.
-- Keys are injected only into the child process.
-- Console output redacts keys.
+- Keys are read only at runtime and never shown or saved in run metadata.
 - Sidecar metadata never includes keys.
 
 ## Troubleshooting
 
 ### No Config Found
 
-Run:
+Open the local configuration GUI to set up or update the relay:
 
 ```powershell
-python ~/.codex/skills/relay-imagegen/scripts/setup.py --check
+$setup = "$HOME/.codex/skills/relay-imagegen/scripts/setup.py"
+python $setup gui
 ```
-
-If both Codex and ccswitch lookup are unavailable, create a user-level config:
-
-```powershell
-python ~/.codex/skills/relay-imagegen/scripts/setup.py config --scope user
-```
-
-### Skip the Current ccswitch Provider
-
-Add:
-
-```powershell
---no-ccswitch
-```
-
-Then provide a JSON config or let file discovery find one.
-
-### Endpoint Path
-
-Root endpoints are normalized from:
-
-```text
-https://relay.example
-```
-
-to:
-
-```text
-https://relay.example/v1
-```
-
-If your relay uses a different API path, use a JSON config with the exact `base_url`.
 
 ### Output Size Is Not the Default Size
 
@@ -582,7 +359,7 @@ relay-imagegen/
 Not included in the public repository:
 
 ```text
-.secrets/config.json
+config.json
 generated/
 *.meta.json
 ```
